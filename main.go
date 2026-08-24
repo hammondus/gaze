@@ -132,7 +132,7 @@ Keys:
   c m s t p n u
                sort processes by cpu, memory, swap, time, pid, name, user
   c m t i n    sort containers by cpu, memory, uptime, disk io, name
-  v            cycle the dashboard, split, and container views
+  v            cycle the split, container, and process views
   1            toggle per-core gauges
   K            show or hide kernel threads
   /            filter processes

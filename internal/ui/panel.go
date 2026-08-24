@@ -8,9 +8,11 @@ import (
 	"github.com/hammondus/gaze/internal/metrics"
 )
 
-// panel is one titled block of the middle band. Panels are built independently
-// of where they end up, then flowed into as many columns as the terminal has
-// room for.
+// panel is one titled block of network, disk, filesystem, or sensor readings.
+//
+// Panels are built independently of where they end up. A wide terminal stacks
+// them down the sidebar; a narrow one flows them across the band above the
+// tables. Neither arrangement is the panel's business.
 type panel struct {
 	title string
 	head  string   // optional column headings, drawn muted under the title
@@ -147,15 +149,19 @@ func fsPanel(s metrics.Snapshot, w, maxRows int) panel {
 	mounts := append([]metrics.Mount(nil), s.Mounts...)
 	sort.Slice(mounts, func(i, j int) bool { return mounts[i].Percent > mounts[j].Percent })
 
-	pathW := w - 20
-	p := panel{title: "FILESYSTEM", head: pad("", pathW) + padLeft("used", 9) + padLeft("free", 10)}
+	// A percentage is never wider than "100%" and a byte count never wider than
+	// "1023B", so the two figures are given what they can use and the rest goes
+	// to the path. In a sidebar barely thirty columns wide, every column the
+	// numbers do not need is one that decides whether a mount is identifiable.
+	pathW := w - 14
+	p := panel{title: "FILESYSTEM", head: pad("", pathW) + padLeft("used", 6) + padLeft("free", 7)}
 	for i, m := range mounts {
 		if i >= maxRows {
 			break
 		}
 		p.rows = append(p.rows, styText.Render(pad(elide(m.Path, pathW), pathW))+
-			thDisk.styleFor(m.Percent).Render(padLeft(percent(m.Percent), 9))+
-			styText.Render(padLeft(bytes(m.Free), 10)))
+			thDisk.styleFor(m.Percent).Render(padLeft(percent(m.Percent), 6))+
+			styText.Render(padLeft(bytes(m.Free), 7)))
 	}
 	return p
 }
@@ -204,28 +210,6 @@ func tempThresholds(s metrics.Sensor) thresholds {
 		t.warn = t.crit * 0.85
 	}
 	return t
-}
-
-// containerPanel lists running containers by CPU.
-//
-// It shares filterContainers with the container views, so a container that is
-// not running is left out here exactly as it is there. In a thirty-column
-// panel, a row of zeroes for something that exited last week costs a row that
-// a running container needs.
-func containerPanel(s metrics.Snapshot, w, maxRows int) panel {
-	cs := filterContainers(s.Containers, "", ctrCPU, false)
-
-	nameW := w - 16
-	p := panel{title: "CONTAINERS", head: pad("", nameW) + padLeft("cpu", 7) + padLeft("mem", 9)}
-	for i, c := range cs {
-		if i >= maxRows {
-			break
-		}
-		p.rows = append(p.rows, styText.Render(pad(c.Name, nameW))+
-			thCPU.styleFor(c.CPU).Render(padLeft(percent(c.CPU), 7))+
-			styText.Render(padLeft(bytes(c.MemUsed), 9)))
-	}
-	return p
 }
 
 // percentless renders a bare number to one decimal, for units that are not

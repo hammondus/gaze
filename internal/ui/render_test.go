@@ -113,19 +113,21 @@ func demoModel(w, h int) Model {
 // program: no line may exceed the width, at any size, or the terminal wraps it
 // and the whole layout slides down the screen.
 func TestViewFitsTerminal(t *testing.T) {
-	for _, size := range [][2]int{{80, 24}, {100, 30}, {120, 40}, {200, 60}, {60, 20}, {40, 15}} {
+	for _, size := range [][2]int{{80, 24}, {90, 24}, {100, 30}, {120, 40}, {200, 60}, {60, 20}, {40, 15}} {
 		m := demoModel(size[0], size[1])
-		for _, variant := range []string{"default", "percore", "filtered", "split", "containers", "nodocker"} {
+		for _, variant := range []string{"default", "percore", "filtered", "procs", "containers", "nodocker", "nosensors"} {
 			mm := m
 			switch variant {
-			case "split":
-				mm.view = viewSplit
+			case "procs":
+				mm.view = viewProcs
 			case "containers":
 				mm.view = viewContainers
 			case "nodocker":
 				mm.view = viewContainers
 				mm.snap.Containers = nil
 				mm.snap.ContainerRuntime = ""
+			case "nosensors":
+				mm.snap.Sensors = nil
 			case "percore":
 				mm.perCore = true
 				mm.snap.PerCPU = make([]metrics.CPU, 8)
@@ -148,8 +150,10 @@ func TestViewFitsTerminal(t *testing.T) {
 // TestViewFitsHeight checks the screen does not overrun the terminal, which
 // would scroll the header off the top on every refresh.
 func TestViewFitsHeight(t *testing.T) {
-	for _, size := range [][2]int{{80, 24}, {120, 40}, {200, 60}, {100, 20}} {
-		for _, v := range []viewMode{viewDashboard, viewSplit, viewContainers} {
+	// The last two are smaller than the header, gauges, and footer together.
+	// Nothing is readable there, but the frame must still not overrun.
+	for _, size := range [][2]int{{80, 24}, {90, 24}, {120, 40}, {200, 60}, {100, 20}, {120, 14}, {40, 8}, {20, 6}} {
+		for _, v := range []viewMode{viewSplit, viewContainers, viewProcs} {
 			m := demoModel(size[0], size[1])
 			m.view = v
 			if h := lipgloss.Height(m.View()); h > size[1] {
@@ -159,46 +163,131 @@ func TestViewFitsHeight(t *testing.T) {
 	}
 }
 
-// TestViewCycle checks the v key and what each view puts on screen.
+// TestSidebarSitsBesideTheTables checks the two-column frame: the panels are on
+// the left of the same lines that carry the tables, not above them. A regression
+// here reads as "the layout still works" in a height test while having quietly
+// gone back to stacking.
+func TestSidebarSitsBesideTheTables(t *testing.T) {
+	const width = 160
+	sideW := sidebarWidth(width)
+	lines := strings.Split(stripStyle(demoModel(width, 40).View()), "\n")
+
+	titles := 0
+	var networkLine []rune
+	for _, line := range lines {
+		for _, title := range []string{"NETWORK", "DISK I/O", "FILESYSTEM", "SENSORS"} {
+			if !strings.HasPrefix(line, title) {
+				continue
+			}
+			titles++
+			if title == "NETWORK" {
+				networkLine = []rune(line)
+			}
+		}
+	}
+	// Every panel title starts its line, so the panels are down the left.
+	if titles != 4 {
+		t.Errorf("found %d panel titles at the start of a line, want 4", titles)
+	}
+	if networkLine == nil {
+		t.Fatal("no network panel on screen")
+	}
+	// The first panel and the first table share a line, so the sidebar is
+	// beside the tables rather than above them.
+	if len(networkLine) <= sideW || strings.TrimSpace(string(networkLine[sideW:])) == "" {
+		t.Errorf("nothing beside the network panel; the frame is still stacked:\n%q", string(networkLine))
+	}
+
+	if sideW < 30 || sideW > width/4 {
+		t.Errorf("sidebar width at %d columns = %d, want 30 to %d", width, sideW, width/4)
+	}
+	if w := sidebarWidth(80); w != 0 {
+		t.Errorf("80 columns is too narrow to divide, but got a %d-column sidebar", w)
+	}
+}
+
+// TestSidebarSharesRowsWhereTheyAreWanted checks the row split. An even share is
+// the wrong answer: the rows a panel cannot fill must go to one that can.
+func TestSidebarSharesRowsWhereTheyAreWanted(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		want   []int
+		budget int
+		got    []int
+	}{
+		{"everyone fits", []int{2, 2, 3}, 12, []int{2, 2, 3}},
+		{"the spare rows go to the panel that wants them", []int{1, 1, 9}, 9, []int{1, 1, 7}},
+		{"an even split when every panel is greedy", []int{9, 9, 9}, 9, []int{3, 3, 3}},
+		{"fewer rows than panels, top first", []int{4, 4, 4}, 2, []int{1, 1, 0}},
+		{"a panel with no data takes nothing", []int{0, 5, 5}, 6, []int{0, 3, 3}},
+	} {
+		got := share(c.want, c.budget)
+		if len(got) != len(c.got) {
+			t.Fatalf("%s: got %v, want %v", c.name, got, c.got)
+		}
+		total := 0
+		for i := range got {
+			total += got[i]
+			if got[i] != c.got[i] {
+				t.Errorf("%s: share(%v, %d) = %v, want %v", c.name, c.want, c.budget, got, c.got)
+				break
+			}
+		}
+		if total > c.budget {
+			t.Errorf("%s: handed out %d rows of a %d budget", c.name, total, c.budget)
+		}
+	}
+}
+
+// TestViewCycle checks the v key and what each view puts in the main column.
+//
+// The three views are how much of that column containers get: a share of it,
+// all of it, none of it. The sidebar is the same in each.
 func TestViewCycle(t *testing.T) {
 	m := demoModel(160, 40)
-	if m.view != viewDashboard {
-		t.Fatal("the dashboard is the starting view")
+	if m.view != viewSplit {
+		t.Fatal("the split view is the starting view")
 	}
 
-	// The dashboard carries containers as a band panel.
-	if !strings.Contains(stripStyle(m.View()), "CONTAINERS") {
-		t.Error("the dashboard should show the container panel")
-	}
-
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
-	split := next.(Model)
-	if split.view != viewSplit {
-		t.Fatalf("v gave %s, want split", split.view.name())
-	}
-	out := stripStyle(split.View())
-	// The split view shows both tables, and must not also show the panel.
+	out := stripStyle(m.View())
+	// The split view shows both tables.
 	if !strings.Contains(out, "NAME") || !strings.Contains(out, "PID") {
 		t.Error("the split view should show both the container and process tables")
 	}
-	if strings.Contains(out, "CONTAINERS") {
-		t.Error("the split view must drop the band panel, or containers appear twice")
-	}
 
-	next, _ = split.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	ctr := next.(Model)
 	if ctr.view != viewContainers {
 		t.Fatalf("v gave %s, want containers", ctr.view.name())
 	}
 	out = stripStyle(ctr.View())
-	if strings.Contains(out, "COMMAND") && strings.Contains(out, "  PID ") {
+	if strings.Contains(out, "  PID ") {
 		t.Error("the container view should replace the process table")
+	}
+	if !strings.Contains(out, "NETWORK") {
+		t.Error("the sidebar belongs to every view")
+	}
+
+	next, _ = ctr.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	procs := next.(Model)
+	if procs.view != viewProcs {
+		t.Fatalf("v gave %s, want processes", procs.view.name())
+	}
+	out = stripStyle(procs.View())
+	if !strings.Contains(out, "  PID ") {
+		t.Error("the process view should show the process table")
+	}
+	// Every container name is gone, so the process list has the whole column.
+	for _, name := range []string{"pgdata", "edge-proxy"} {
+		if strings.Contains(out, name) {
+			t.Errorf("the process view still shows the container %s", name)
+		}
 	}
 
 	// A third press returns to the start.
-	next, _ = ctr.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
-	if next.(Model).view != viewDashboard {
-		t.Error("v did not cycle back to the dashboard")
+	next, _ = procs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	if next.(Model).view != viewSplit {
+		t.Error("v did not cycle back to the split view")
 	}
 }
 
@@ -231,21 +320,17 @@ func TestStoppedContainersOnlyInDedicatedView(t *testing.T) {
 	}
 }
 
-// TestDashboardPanelHidesStoppedContainers checks the band panel applies the
-// same rule as the views it sits beside. A thirty-column panel has no room for
-// a row of zeroes describing something that exited last week.
-func TestDashboardPanelHidesStoppedContainers(t *testing.T) {
-	p := containerPanel(demoSnapshot(), 30, 10)
-	if len(p.rows) != 2 {
-		t.Errorf("panel rows = %d, want 2 running containers", len(p.rows))
-	}
-	joined := stripStyle(strings.Join(p.rows, "\n"))
+// TestSplitViewHidesStoppedContainers checks that the container table above the
+// process list applies the same rule as the panel it replaced. A row of dashes
+// for something that exited last week costs a row a running container needs.
+func TestSplitViewHidesStoppedContainers(t *testing.T) {
+	out := stripStyle(demoModel(160, 40).View())
 	for _, stopped := range []string{"nightly-backup", "migrate-once"} {
-		if strings.Contains(joined, stopped) {
-			t.Errorf("%s is stopped and must not appear in the band panel", stopped)
+		if strings.Contains(out, stopped) {
+			t.Errorf("%s is stopped and must not appear in the split view", stopped)
 		}
 	}
-	if !strings.Contains(joined, "pgdata") {
+	if !strings.Contains(out, "pgdata") {
 		t.Error("the busiest running container is missing")
 	}
 }

@@ -26,27 +26,26 @@ const historyLen = 60
 // Docker socket can, and a wedged daemon must not freeze the display.
 const collectTimeout = 3 * time.Second
 
-// viewMode is which of the three screens is showing.
+// viewMode is how much of the main column containers get.
 //
-// The container views are cycled with one key rather than bound to three,
-// because they are points on a single axis: how much of the screen containers
-// deserve. On a host running none, the cycle still works and the container
-// screens say so.
+// The three are cycled with one key rather than bound to three, because they
+// are points on a single axis: how much of the screen containers deserve. On a
+// host running none, the cycle still works and the container view says so.
 type viewMode int
 
 const (
-	// viewDashboard is the default: containers get one panel in the band,
-	// beside network and disk.
-	viewDashboard viewMode = iota
-	// viewSplit gives containers a full-width table above the process list.
-	viewSplit
-	// viewContainers replaces the process list with the container table, and
-	// is the only view that shows containers which are not running.
+	// viewSplit is the default: containers take a short table above the
+	// process list, and only when there are running containers to show.
+	viewSplit viewMode = iota
+	// viewContainers gives containers the whole main column, and is the only
+	// view that shows containers which are not running.
 	viewContainers
+	// viewProcs drops containers, so the process list takes the full height.
+	viewProcs
 )
 
 func (v viewMode) name() string {
-	return [...]string{"dashboard", "split", "containers"}[v]
+	return [...]string{"split", "containers", "processes"}[v]
 }
 
 // next cycles to the following view.
@@ -284,54 +283,219 @@ func clampInterval(d time.Duration) time.Duration {
 	}
 }
 
-// minProcRows is the smallest process table worth drawing. The middle band
-// gives up its rows to protect this: a monitor whose process list is two rows
-// tall has stopped being a monitor.
+// minProcRows is the smallest process table worth drawing. Everything above it
+// gives up rows to protect this: a monitor whose process list is two rows tall
+// has stopped being a monitor.
 const minProcRows = 5
 
-// layout is the height budget for one frame.
+// Below the gauges the frame is two columns: a sidebar of network, disk, and
+// filesystem panels, and a main column holding the container and process
+// tables.
+const (
+	// sidebarGap is the space between the two columns.
+	sidebarGap = 2
+	// sidebarMin is the narrowest sidebar worth drawing. Below it the figures
+	// crowd out the interface or mount name beside them.
+	sidebarMin = bandMinColWidth
+	// sidebarMax caps the sidebar. The figures in it are fixed width, so past
+	// this the column grows only its padding, and the command line in the
+	// process table wants those columns more.
+	sidebarMax = 40
+	// mainMin is the narrowest main column worth dividing off. Below it the
+	// process table has already lost RSS and has little left for a command
+	// line, so the frame stacks instead.
+	mainMin = 56
+	// sidebarMinRows is the shortest sidebar worth drawing: a title, a heading,
+	// and one row for each required panel, with a blank line between them.
+	sidebarMinRows = 3*3 + 2
+	// minPanelRows is the fewest rows that earn a panel its title and heading.
+	// A panel showing one mount out of nine spends two lines saying so.
+	minPanelRows = 2
+)
+
+// sidebarWidth returns the width of the left column, or zero when the terminal
+// is too narrow to divide.
+func sidebarWidth(width int) int {
+	w := min(max(width/4, sidebarMin), sidebarMax)
+	if width-w-sidebarGap < mainMin {
+		return 0
+	}
+	return w
+}
+
+// layout is one frame, measured before it is drawn.
 //
-// Every region is measured before anything is drawn, because a full-screen
-// program that renders one line too many scrolls its own header off the top on
+// Every region is sized before anything is rendered, because a full-screen
+// program that emits one line too many scrolls its own header off the top on
 // every refresh. Sizing is done once, here, and both View and the paging keys
 // read the result.
 type layout struct {
-	header, meters, band string
-	ctrRows              int // the split view's container table, zero elsewhere
-	bottomRows           int // the table filling the rest of the screen
+	header, meters, body string
+	listRows             int // height of the list the cursor moves through
 }
 
 // rows returns the height of the list the cursor moves through.
-func (l layout) rows() int { return l.bottomRows }
+func (l layout) rows() int { return l.listRows }
 
 func (m Model) layout() layout {
-	l := layout{header: m.header(), meters: m.meters()}
+	l := layout{header: m.header(), meters: m.meters(), listRows: 1}
 
 	// The chrome is the header, the gauges, the blank line after each, and
 	// the footer. Each table supplies its own heading line.
-	used := lipgloss.Height(l.header) + 1 + lipgloss.Height(l.meters) + 1 + 1 + 1
+	used := lipgloss.Height(l.header) + lipgloss.Height(l.meters) + 3
+	if h := m.height - used; h > 0 {
+		l.body, l.listRows = m.body(h)
+	}
+	return l
+}
 
-	// The band gets what is left once the bottom table has its minimum, less
-	// one line for the blank that follows it.
-	l.band = m.band(m.height - used - minProcRows - 1)
-	if l.band != "" {
-		used += lipgloss.Height(l.band) + 1
+// body renders everything between the gauges and the footer, and reports how
+// many rows the list the cursor moves through ended up with.
+//
+// The two columns exist because the things in them want opposite shapes. An
+// interface, a device, and a mount are each a short name and two figures, so
+// their panels are narrow and want height; a process row is a command line, so
+// its table is the reverse. Side by side each gets the shape it wants, and the
+// panels stop being rationed against the process list.
+//
+// Under about 90 columns there is not enough width for both, and the frame
+// falls back to stacking the panels across the top.
+func (m Model) body(h int) (string, int) {
+	sideW := sidebarWidth(m.width)
+	if sideW == 0 || h < sidebarMinRows {
+		return m.stackedBody(h)
 	}
 
-	// In the split view the container table sits between the band and the
-	// process list, and the two share what remains. Containers take the
-	// smaller share: the split view exists to keep an eye on them, not to
-	// replace the container view.
+	main, rows := m.mainColumn(m.width-sideW-sidebarGap, h)
+	col := lipgloss.NewStyle().Width(sideW).MaxWidth(sideW)
+	joined := lipgloss.JoinHorizontal(lipgloss.Top,
+		col.Render(m.sidebar(sideW, h)), strings.Repeat(" ", sidebarGap), main)
+	return clip(joined, h), rows
+}
+
+// stackedBody is the narrow frame: the panels flow across the full width above
+// the tables, and are dropped altogether when the screen is too short.
+func (m Model) stackedBody(h int) (string, int) {
+	if h < 1 {
+		return "", 1
+	}
+	band := m.band(h - minProcRows - 1)
+	if band == "" {
+		return m.mainColumn(m.width, h)
+	}
+	main, rows := m.mainColumn(m.width, h-lipgloss.Height(band)-1)
+	return band + "\n\n" + main, rows
+}
+
+// mainColumn renders the container and process tables into a column of the
+// given size, and reports the height of the list the cursor moves through.
+func (m Model) mainColumn(w, h int) (string, int) {
+	if h < 1 {
+		return "", 1
+	}
+	if m.view == viewContainers {
+		return m.containerTable(w, h, true), h
+	}
+
+	// The container table costs space only when there are containers to put in
+	// it. Its empty states belong to the dedicated view, which has the room to
+	// say which of the three reasons applies.
+	ctrRows := 0
 	if m.view == viewSplit {
-		spare := m.height - used - minProcRows
-		if n := len(filterContainers(m.snap.Containers, m.filter, m.ctrSort, false)); n > 0 && spare > 2 {
-			l.ctrRows = min(n+1, min(spare-1, m.height/4))
-			used += l.ctrRows + 1
+		n := len(filterContainers(m.snap.Containers, m.filter, m.ctrSort, false))
+		if spare := h - minProcRows - 1; n > 0 && spare > 1 {
+			// Containers take the smaller share. The split view exists to keep
+			// an eye on them, not to replace the container view.
+			ctrRows = min(n+1, min(spare, max(2, h/4)))
 		}
 	}
+	if ctrRows == 0 {
+		return m.processes(w, h), h
+	}
+	procRows := h - ctrRows - 1
+	return m.containerTable(w, ctrRows, false) + "\n\n" + m.processes(w, procRows), procRows
+}
 
-	l.bottomRows = max(1, m.height-used)
-	return l
+// sidebar renders the left column: network, disk, and filesystem panels
+// stacked down the screen, with sensors under them on a machine that has any.
+//
+// The panels take the column's whole height rather than a rationed budget, so a
+// tall terminal shows more mounts instead of more empty space.
+func (m Model) sidebar(w, h int) string {
+	// Each panel is built with more rows than the column can hold, then cut to
+	// what it is given. The builders sort before they truncate, so cutting the
+	// finished list keeps the same rows as building a shorter one would.
+	ps := []panel{netPanel(m.snap, w, h), diskPanel(m.snap, w, h), fsPanel(m.snap, w, h)}
+	if len(m.snap.Sensors) > 0 {
+		ps = append(ps, sensorPanel(m.snap, w, h))
+	}
+
+	// Each panel costs a title and a heading line, and a blank line separates
+	// one from the next. On a short screen that chrome is most of the column,
+	// so the optional panel goes rather than leaving all four with a row or two
+	// each: three readable lists beat four stubs.
+	budget := func(n int) int { return h - 3*n + 1 }
+	for len(ps) > 3 && budget(len(ps)) < minPanelRows*len(ps) {
+		ps = ps[:len(ps)-1]
+	}
+
+	want := make([]int, len(ps))
+	for i, p := range ps {
+		want[i] = len(p.rows)
+	}
+	got := share(want, budget(len(ps)))
+
+	blocks := make([]string, len(ps))
+	for i, p := range ps {
+		p.rows = p.rows[:got[i]]
+		blocks[i] = p.render(w)
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
+// share hands a row budget out to panels that each want a number of rows.
+//
+// An even split is the wrong answer: a machine with two interfaces and nine
+// filesystems would leave the network panel padded while the filesystem list
+// was cut in half. Each round gives every panel still short of what it wants an
+// equal share of what is left, so the rows one panel cannot use go round again.
+func share(want []int, budget int) []int {
+	got := make([]int, len(want))
+	for budget > 0 {
+		short := 0
+		for i := range want {
+			if got[i] < want[i] {
+				short++
+			}
+		}
+		if short == 0 {
+			break
+		}
+		per := budget / short
+		if per == 0 {
+			// Fewer rows left than panels wanting one. They go in the order the
+			// panels appear in the column, so the top one keeps its row.
+			for i := range want {
+				if budget == 0 {
+					break
+				}
+				if got[i] < want[i] {
+					got[i]++
+					budget--
+				}
+			}
+			break
+		}
+		for i := range want {
+			if got[i] >= want[i] {
+				continue
+			}
+			n := min(per, want[i]-got[i])
+			got[i] += n
+			budget -= n
+		}
+	}
+	return got
 }
 
 // View renders the whole screen.
@@ -349,46 +513,42 @@ func (m Model) View() string {
 	b.WriteString("\n\n")
 	b.WriteString(l.meters)
 	b.WriteString("\n\n")
-	if l.band != "" {
-		b.WriteString(l.band)
-		b.WriteString("\n\n")
+	if l.body != "" {
+		b.WriteString(l.body)
+		b.WriteString("\n")
 	}
-	if l.ctrRows > 0 {
-		b.WriteString(m.containerTable(l.ctrRows, false))
-		b.WriteString("\n\n")
-	}
-	if m.view == viewContainers {
-		b.WriteString(m.containerTable(l.bottomRows, true))
-	} else {
-		b.WriteString(m.processes(l.bottomRows))
-	}
-	b.WriteString("\n")
 	b.WriteString(m.footer())
-	return b.String()
+
+	// The backstop. On a terminal so short that the gauges and the footer do
+	// not fit between them, there is no body left to give up and the frame
+	// would still overrun. Nothing is readable at that size, but a frame that
+	// scrolls its own header away every refresh is worse than a truncated one.
+	return clip(b.String(), m.height)
 }
 
-// containerTable renders the container list. showStopped is set only for the
-// dedicated view, which is the one with room to spare.
-func (m Model) containerTable(rows int, showStopped bool) string {
+// containerTable renders the container list into a column of the given width.
+// showStopped is set only for the dedicated view, which is the one with room to
+// spare.
+func (m Model) containerTable(w, rows int, showStopped bool) string {
 	// Every one of these lines carries colour, so each is clipped by display
 	// width rather than by rune count.
 	//
 	// Switched off and not found are different facts, and reporting one as the
 	// other sends you looking for a daemon problem you do not have.
 	if m.snap.ContainersDisabled {
-		return clipWidth(styLabel.Render("container collection is switched off"), m.width) + "\n" +
-			clipWidth(styFaint.Render("restart without -containers=false to enable it"), m.width)
+		return clipWidth(styLabel.Render("container collection is switched off"), w) + "\n" +
+			clipWidth(styFaint.Render("restart without -containers=false to enable it"), w)
 	}
 	if m.snap.ContainerRuntime == "" {
-		return clipWidth(styLabel.Render("no container runtime reachable"), m.width) + "\n" +
-			clipWidth(styFaint.Render("looked for docker.sock and podman.sock"), m.width)
+		return clipWidth(styLabel.Render("no container runtime reachable"), w) + "\n" +
+			clipWidth(styFaint.Render("looked for docker.sock and podman.sock"), w)
 	}
 	cs := filterContainers(m.snap.Containers, m.filter, m.ctrSort, showStopped)
 	if len(cs) == 0 {
 		if m.filter != "" {
-			return clipWidth(styLabel.Render("no containers match "+m.filter), m.width)
+			return clipWidth(styLabel.Render("no containers match "+m.filter), w)
 		}
-		return clipWidth(styLabel.Render("no containers running on "+m.snap.ContainerRuntime), m.width)
+		return clipWidth(styLabel.Render("no containers running on "+m.snap.ContainerRuntime), w)
 	}
 
 	// The split view's table is a readout, not a list you move through, so it
@@ -397,7 +557,7 @@ func (m Model) containerTable(rows int, showStopped bool) string {
 	if !showStopped {
 		cursor, offset = -1, 0
 	}
-	lines, _ := ctrTable.render(cs, m.width, rows, int(m.ctrSort), cursor, offset)
+	lines, _ := ctrTable.render(cs, w, rows, int(m.ctrSort), cursor, offset)
 	return strings.Join(lines, "\n")
 }
 
@@ -533,7 +693,8 @@ const bandMinColWidth = 30
 // bandGap is the space between panel columns.
 const bandGap = 2
 
-// band renders the middle block of panels within a height budget.
+// band renders the panels as a full-width block within a height budget, for a
+// terminal too narrow to carry them in a sidebar.
 //
 // Panels are built to fit rather than clipped after the fact, and the optional
 // ones are dropped first when the screen is short. What survives is what a
@@ -544,13 +705,10 @@ func (m Model) band(budget int) string {
 	}
 
 	// Network, disk, and filesystems always appear, so their position never
-	// moves. Sensors and containers only appear when the machine has them.
+	// moves. Sensors appear only on a machine that has them.
 	required := 3
 	optional := 0
 	if len(m.snap.Sensors) > 0 {
-		optional++
-	}
-	if m.bandShowsContainers() {
 		optional++
 	}
 
@@ -581,13 +739,6 @@ func bandColumns(n, width int) (cols, colWidth int) {
 	return cols, (width - bandGap*(cols-1)) / cols
 }
 
-// bandShowsContainers reports whether the band carries the container panel.
-// Only the dashboard view does; the other two give containers a table of their
-// own, and showing both would report the same containers twice.
-func (m Model) bandShowsContainers() bool {
-	return m.view == viewDashboard && len(m.snap.Containers) > 0
-}
-
 // panels builds the first n panels in fixed order.
 func (m Model) panels(n, colW, maxRows int) []panel {
 	all := []panel{
@@ -597,9 +748,6 @@ func (m Model) panels(n, colW, maxRows int) []panel {
 	}
 	if len(m.snap.Sensors) > 0 {
 		all = append(all, sensorPanel(m.snap, colW, maxRows))
-	}
-	if m.bandShowsContainers() {
-		all = append(all, containerPanel(m.snap, colW, maxRows))
 	}
 	if n > len(all) {
 		n = len(all)
@@ -623,10 +771,10 @@ func panelRows(n, cols, budget int) (int, bool) {
 	return rows, true
 }
 
-// processes renders the process table into the given number of rows.
-func (m Model) processes(rows int) string {
+// processes renders the process table into a column of the given size.
+func (m Model) processes(w, rows int) string {
 	procs := filterProcesses(m.snap.Processes, m.filter, m.sort, m.hideKernel)
-	lines, _ := procTable.render(procs, m.width, rows, int(m.sort), m.cursor, m.offset)
+	lines, _ := procTable.render(procs, w, rows, int(m.sort), m.cursor, m.offset)
 	return strings.Join(lines, "\n")
 }
 
@@ -666,7 +814,7 @@ func (m Model) helpView() string {
 	b.WriteString(styTitle.Render("gaze") + "\n\n")
 	for _, k := range [][2]string{
 		{"q, esc", "quit"},
-		{"v", "cycle dashboard, split, and container views"},
+		{"v", "cycle the split, container, and process views"},
 		{"c, m, s, t, p, n, u", "sort processes by cpu, memory, swap, time, pid, name, user"},
 		{"c, m, t, i, n", "sort containers by cpu, memory, uptime, disk io, name"},
 		{"1", "toggle per-core gauges"},

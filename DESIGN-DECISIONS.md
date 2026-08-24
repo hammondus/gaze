@@ -278,20 +278,65 @@ the start-up frame showed 50 percent CPU and a process at 200 percent, and
 every frame after it was correct. `TestFirstCollectionHasNoRates` covers it
 now.
 
+## The frame is two columns, not four stacked bands
+
+Below the gauges the screen divides into a sidebar of network, disk, and
+filesystem panels, about a quarter of the width, and a main column holding the
+container and process tables.
+
+The two halves are there because the things in them want opposite shapes. An
+interface, a block device, and a mount are each a short name and two figures, so
+those panels are narrow and want height. A process row is a command line, so its
+table is the reverse. Stacking them, which is what this did before, forces one
+budget on both: the panels were rationed against the process list, and every row
+given to a filesystem was a row taken from a process. Side by side they compete
+for width, which they have, instead of for height, which they do not.
+
+Two things follow from the split:
+
+- **The sidebar takes the column's whole height**, so a tall terminal shows nine
+  mounts rather than nine lines of nothing. Rows are handed out by what each
+  panel has to show, not evenly: the usual machine has two interfaces and a
+  fistful of filesystems, and an even split would pad the first while cutting
+  the last in half. `share` in `model.go` does that, and the rows one panel
+  cannot use go round again.
+- **The process table is narrower**, so it drops a column or two sooner than it
+  used to. That is the price, and it is paid in the columns worth least: the
+  table already drops from the least useful upwards, and `COMMAND` still flexes
+  into whatever is left.
+
+Under about 90 columns there is not enough width for both. `sidebarWidth`
+returns zero, and the frame falls back to the older stacked layout, where the
+panels flow across the full width above the tables. A 30-column sidebar on an
+80-column terminal would leave the process table 48 columns, which is not enough
+for a command line, so on a narrow screen stacking is the better answer rather
+than a fallback to apologise for.
+
+The sensor panel is dropped when the sidebar is too short to give all four
+panels two rows each. Three lists you can read beat four that are mostly title.
+
 ## Three container views on one key
 
-Containers get three amounts of screen, cycled with `v`: a panel in the band,
-a full-width table above the process list, and a table that replaces it.
+Containers get three amounts of the main column, cycled with `v`: a table above
+the process list, the whole column, or none of it.
 
 They are one key rather than three because they are points on a single axis —
 how much of the screen containers deserve — and a cycle makes that legible in
-the footer, which always names the current view. Only the dashboard view puts
-containers in the band; the other two drop that panel, or the same containers
-would appear twice on one screen.
+the footer, which always names the current view. The sidebar does not change
+between them: it holds nothing to do with containers, so there is nothing for
+the cycle to move.
 
-The container view is the only one that shows containers which are not running,
-and the only one with a cursor: the split view's table is a readout, not a list
-you move through.
+The split view is the default, and its table is sized to the number of
+containers running, so a host with none looks exactly like the process view
+without being told to. The container view is the only one that shows containers
+which are not running, and the only one with a cursor: the split view's table is
+a readout, not a list you move through.
+
+Containers used to have a fourth home, a panel in the band beside network and
+disk. The sidebar that replaced the band is too narrow to say anything useful
+about a container — a name and two figures, with no room for state or uptime —
+and the split view's table says all of it. The panel is gone rather than
+squeezed.
 
 ## One table implementation, two tables
 
@@ -315,14 +360,19 @@ the screen. Both failures are invisible until they are not.
 
 Three mechanisms enforce this:
 
-- The middle band is built to a height budget. The process table keeps at least
-  five rows, and the optional panels are dropped before that minimum is
-  touched.
+- Both columns are built to the same height budget, and neither is allowed to
+  exceed it. Within the main column the process table keeps at least five rows,
+  and the container table above it is dropped before that minimum is touched.
 - Process table columns carry a `minWidth` and are dropped from the least
   useful upwards until the command column has room, so a narrow terminal
   degrades rather than wraps.
-- `TestViewFitsTerminal` and `TestViewFitsHeight` render every variant at six
+- `View` clips its own output to the terminal height as a last resort. On a
+  screen too short to hold the gauges and the footer together there is no body
+  left to give up, and the arithmetic above has nothing left to trade.
+- `TestViewFitsTerminal` and `TestViewFitsHeight` render every variant at seven
   terminal sizes and fail on a single overrun.
+  `TestSidebarSitsBesideTheTables` covers the one failure those two miss: a
+  frame that has quietly gone back to stacking still fits the terminal.
 
 Anything already carrying colour goes through `clipWidth`, which measures
 display width. The plain helpers in `format.go` count runes, and a rune count

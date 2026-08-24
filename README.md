@@ -11,20 +11,28 @@ It only runs on linux and it does not have anywhere near the number of features 
 
 
 ```
- gaze  aurora  Linux 6.8.0-45-generic  up 6d 4h 12m                    14:23:07  1.0s
+ gaze  aurora  Linux 6.8.0-45-generic  up 6d 4h 12m                                       14:23:07  1.0s
 
-CPU   ████████████▋─────────────────    42%   ▁▂▃▅▆▅▄▃▃▄▅▄▄  MEM   ████████████████████▌────    69%
-LOAD  ████████████▊─────────────────    42%   ▁▁▂▃▄▄▃▃▂▂▃▃▃  SWAP  ███████▉──────────────────    26%
+CPU   █████████▎────────────    42%   ▁▂▃▅▆▅▄▃▃▄▅▄▄  MEM   ███████████████───────    69%   ▄▄▅▆▇▆▅▅▅▅▆▅▆
+LOAD  █████████▎────────────    42%   ▁▁▂▃▄▄▃▃▂▂▃▃▃  SWAP  █████▊────────────────    26%   ▁▁▂▂▃▃▂▂▂▂▃▃▃
 8 cores · load 3.40 2.90 2.10 · 11G of 16G used · 412 tasks, 1183 threads · 1 zombie · 6.1% iowait
 
-NETWORK                                 DISK I/O                                FILESYSTEM
-                          rx       tx                           read    write                  used      free
-eth0                  1.4M/s   340K/s   nvme0n1                12M/s   4.0M/s   … postgresql     91%       12G
-wg0                   2.0K/s   900B/s   sda                      0/s    96K/s   /                34%      420G
-
-    PID USER        ▾CPU%   MEM%     RSS    SWAP     TIME+  THR S  COMMAND
-   2841 postgres      18%    12%    2.0G      0B   2:17.00    4 R  postgres: writer process
-   1102 craig         12%   8.9%    1.5G    340M   4:34.00    5 S  /usr/lib/firefox/firefox
+NETWORK                         NAME                 STATE      UPTIME  ▾CPU%     MEM COMMAND
+                  rx       tx   pgdata               running      6d4h    18%    2.0G postgres -c share…
+eth0          1.4M/s   340K/s   edge-proxy           running      6d3h   0.4%     48M nginx -g 'daemon …
+wg0           2.0K/s   900B/s
+lo               0/s      0/s       PID USER        ▾CPU%   MEM%     RSS COMMAND
+                                   2841 postgres      18%    12%    2.0G postgres: writer process
+DISK I/O                           1102 craig         12%   8.9%    1.5G /usr/lib/firefox/firefox --pro…
+                read    write       331 root         2.2%   0.4%     68M /usr/lib/systemd/systemd-journ…
+nvme0n1        12M/s   4.0M/s      7734 craig        1.4%   2.1%    350M go build ./...
+sda              0/s    96K/s       883 root         0.9%   1.2%    190M /usr/bin/dockerd -H fd://
+                                   1544 www-data     0.6%   0.2%     24M nginx: worker process
+FILESYSTEM                          412 nobody         0%     0%      0B [defunct-thing]
+                  used   free
+…postgresql/data   91%    12G
+/home              62%   180G
+q quit  c/m/s/t/p sort:cpu  v view:split  K kthreads:off  / filter  ␣ pause  ? help
 ```
 
 ## What it shows
@@ -126,7 +134,7 @@ gaze
 | `q`, `esc` | Quit |
 | `c`, `m`, `s`, `t`, `p`, `n`, `u` | Sort processes by CPU, memory, swap, time, PID, name, or user |
 | `c`, `m`, `t`, `i`, `n` | Sort containers by CPU, memory, uptime, disk I/O, or name |
-| `v` | Cycle the dashboard, split, and container views |
+| `v` | Cycle the split, container, and process views |
 | `1` | Toggle per-core gauges |
 | `K` | Show or hide kernel threads, which start hidden |
 | `/` | Filter processes by name or command line |
@@ -159,13 +167,15 @@ the command lines of other users' processes, which the kernel otherwise hides.
 
 ### Containers
 
-Press `v` to cycle three views:
+Press `v` to cycle how much of the main column containers get:
 
 | View | Container display | Process list |
 |---|---|---|
-| `dashboard` | One panel in the band: name, CPU, memory | Full height |
-| `split` | Full-width table above the process list | Shares the height |
-| `containers` | Full-width table, **including containers that are not running** | Replaced |
+| `split` | A table above the process list, sized to the number running | Shares the column |
+| `containers` | The whole column, **including containers that are not running** | Hidden |
+| `processes` | Hidden | The whole column |
+
+The sidebar of network, disk, and filesystem panels stays put in all three.
 
 For container statistics, gaze needs read access to a runtime socket. It
 tries these in order, and the first that is a socket wins:
@@ -227,6 +237,7 @@ For the choices behind the code, see [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md).
 | `main.go` | Flags and start-up |
 | `internal/metrics` | Collection from `/proc` and `/sys`. Standard library only. |
 | `internal/ui` | Bubble Tea model, panels, and formatting |
+| `internal/update` | `--update` and `--check-update` |
 
 The two packages share one type, `metrics.Snapshot`. The collector decides what
 the numbers are, and the display decides what they look like.
