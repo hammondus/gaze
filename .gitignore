@@ -1,0 +1,8 @@
+# Build output
+/gaze
+/dist/
+
+# Local module resolution, per the workspace convention. Never commit this:
+# it is correct for this working tree only and wrong inside a build container.
+/go.work
+/go.work.sum

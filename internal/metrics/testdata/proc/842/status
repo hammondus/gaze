@@ -1,0 +1,18 @@
+Name:	my app (beta)
+Umask:	0022
+State:	R (running)
+Tgid:	842
+Ngid:	0
+Pid:	842
+PPid:	1
+TracerPid:	0
+Uid:	1000	1000	1000	1000
+Gid:	1000	1000	1000	1000
+FDSize:	256
+Groups:	4 24 27 1000 
+VmPeak:	 2661440 kB
+VmSize:	 2560000 kB
+VmRSS:	  262144 kB
+VmData:	 1048576 kB
+VmSwap:	  348160 kB
+Threads:	8
