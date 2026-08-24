@@ -67,33 +67,38 @@ func main() {
 	}
 }
 
+// Exit codes for --check-update. A script has to be able to tell "there is an
+// update" apart from "I could not find out", or a network failure reads as an
+// available update and the script does the wrong thing.
+const (
+	exitUpToDate    = 0
+	exitUpdateFound = 1
+	exitCannotCheck = 2
+)
+
 // runUpdate handles --update and --check-update.
-//
-// Both exit non-zero on failure so a cron entry or a deploy script can tell
-// that nothing happened. --check-update exits 1 when an update is available,
-// which is what makes it usable in a shell condition.
 func runUpdate(apply bool) {
 	up, err := update.New(buildVersion())
 	if err != nil {
-		fatal("%v", err)
+		fatalCode(exitCannotCheck, "%v", err)
 	}
 	if apply {
 		if err := up.Apply(os.Stdout); err != nil {
-			fatal("%v", err)
+			fatalCode(exitCannotCheck, "%v", err)
 		}
 		return
 	}
 
 	latest, differs, err := up.Available()
 	if err != nil {
-		fatal("%v", err)
+		fatalCode(exitCannotCheck, "%v", err)
 	}
 	if !differs {
 		fmt.Printf("gaze %s is the published version\n", latest)
-		return
+		os.Exit(exitUpToDate)
 	}
 	fmt.Printf("gaze %s is available; this is %s\nrun: gaze --update\n", latest, buildVersion())
-	os.Exit(1)
+	os.Exit(exitUpdateFound)
 }
 
 func usage() {
@@ -109,6 +114,9 @@ Flags:
 Updating:
   gaze --check-update   report whether a newer release exists
   gaze --update         download and install it, verifying the checksum
+
+  --check-update exits 0 when this is the published version, 1 when a newer
+  one exists, and 2 when it could not find out.
 
 Keys:
   q            quit
@@ -151,6 +159,10 @@ func buildVersion() string {
 }
 
 func fatal(format string, args ...any) {
+	fatalCode(1, format, args...)
+}
+
+func fatalCode(code int, format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "gaze: "+format+"\n", args...)
-	os.Exit(1)
+	os.Exit(code)
 }

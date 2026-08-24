@@ -65,6 +65,9 @@ alongside them and nothing to configure.
 gaze --update
 ```
 
+Self-updating starts at v0.2.0. A v0.1.0 binary has no `--update` flag, so
+upgrade that one with the download above, once.
+
 It reads the latest version, downloads the build for this machine, checks it
 against the published `SHA256SUMS`, and replaces itself. Replacing a running
 executable is safe on Linux, so you can run this from inside a `gaze` session.
@@ -72,11 +75,23 @@ executable is safe on Linux, so you can run this from inside a `gaze` session.
 If `gaze` lives somewhere only root can write, such as `/usr/local/bin`, the
 update needs `sudo`. It says so rather than failing with a permissions error.
 
-To ask without installing anything, use `gaze --check-update`. It exits 1 when
-a newer release exists, so it works in a condition:
+To ask without installing anything, use `gaze --check-update`. Its exit code
+distinguishes all three outcomes, so a script can tell an available update
+apart from a failure to check:
 
-```
-gaze --check-update || echo "time to update"
+| Code | Meaning |
+|---|---|
+| 0 | This is the published version |
+| 1 | A newer release exists |
+| 2 | Could not find out |
+
+```sh
+gaze --check-update
+case $? in
+  0) ;;
+  1) gaze --update ;;
+  *) echo "could not reach the release server" >&2 ;;
+esac
 ```
 
 The checksum confirms the download arrived intact. It is not a signature, so it
