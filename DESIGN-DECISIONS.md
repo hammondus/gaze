@@ -1,14 +1,68 @@
 # Design decisions
 
 This file records the choices that were not obvious, and why the alternative
-lost. For what the program does, see the README.
+lost. For what the program does, see the README. For what is built and what is
+still to come, see [ROADMAP.md](ROADMAP.md).
+
+Sections describing the agent and the server are decisions, not descriptions:
+most of that code is not written yet. The roadmap says which stage each belongs
+to.
 
 ## Scope
 
-gaze is a Linux terminal system monitor, modelled on
-[glances](https://github.com/nicolargo/glances) but not a port of it. It ships
-as one static executable and has no runtime configuration, no web interface,
-no client/server mode, and no metric exporters.
+gaze started as a Linux terminal system monitor, modelled on
+[glances](https://github.com/nicolargo/glances) but not a port of it, and that
+is still what `gaze` the binary is: one static executable, no runtime
+configuration.
+
+It has since grown a second job. `gaze-agent` sends the same measurements to
+`gaze-server`, which stores them for several hosts and draws them in a browser.
+The motivation is the same as the original one. Zabbix does this and more, and
+the collecting and displaying halves were too heavy to put on a small VM.
+
+What is still out of scope: metric exporters, a plugin system, remote command
+execution, and agent-to-agent anything. What was out of scope and no longer is:
+a web interface and a client/server mode. See "One repository, five
+components".
+
+## One repository, five components
+
+Everything lives in one module, `github.com/hammondus/gaze`, and builds into
+three binaries.
+
+| Component | What it is | Depends on | External dependencies |
+|---|---|---|---|
+| `metrics` | Collection. The platform boundary lives here. | nothing | none |
+| `report` | The wire types, and the reduction from a snapshot. | `metrics` | none |
+| `cmd/gaze` | The TUI. | `metrics` | Bubble Tea, Lip Gloss |
+| `cmd/gaze-agent` | Collects and posts to a server. | `metrics`, `report`, `update` | none |
+| `cmd/gaze-server` | Ingests, stores, draws, alerts. | `report` | SQLite, mailer |
+
+Two things about that table matter more than the layout.
+
+**`report` is a component, not a file in one of the others.** It is the only
+thing two components share and neither owns. Put it inside the agent and the
+server imports the agent; put it inside the server and the agent imports the
+server. Both are wrong, and the cost of finding out is paid later, when
+changing a field means editing across a boundary that should not exist.
+
+**The arrows point one way.** `report` depends on `metrics` and never the
+reverse, so the collector never learns that a server exists. That is what keeps
+`metrics` importable by anything, and what would let the collector be extracted
+to its own module later without touching it.
+
+The alternative was two repositories, splitting at the deployment artifact: the
+TUI and the agent are static binaries dropped on a monitored host, and the
+server is a service with a database behind nginx. That split is real and it is
+the one to make if another developer ever appears. With one developer it buys a
+cross-module version dance in exchange for tidiness, and loses the property
+that a change to `report` and its two consumers is one commit that either
+compiles or does not.
+
+The worry that one repository makes the agent heavy is unfounded. Go links per
+binary, so SQLite in `go.mod` puts nothing in `gaze-agent`. What it does cost is
+the sentence about the dependency footprint, which now has to be stated per
+binary. See "Bubble Tea earns its dependencies, and they are most of them".
 
 ## Metrics come from /proc and /sys, not from a library
 
@@ -25,6 +79,13 @@ under 900 lines and every parser fits on a screen.
 
 The cost is real and worth stating: **the program only runs on Linux**, and the
 development machine is a Mac. The next decision is what pays for that.
+
+`gopsutil` was reconsidered when Windows came up as a possibility, and loses
+again for a new reason. It would supply Windows and macOS at once, but the
+`Snapshot` this project renders and stores is not the shape `gopsutil` returns,
+so it would be a translation layer over a dependency tree rather than a
+replacement for the collector. The Linux half already exists and is tested. See
+"The platform boundary exists before the second platform does".
 
 ## Parsers take a filesystem, not a path
 
@@ -233,7 +294,13 @@ running ones off the screen.
 ## Bubble Tea earns its dependencies, and they are most of them
 
 Bubble Tea and Lip Gloss bring about twenty modules between them. That is the
-entire external dependency footprint of the project; the collector has none.
+entire external dependency footprint of `gaze`; the collector has none.
+
+State that per binary, not per repository. Since the server arrived, `go.mod`
+also carries SQLite and the mailer, and the sentence would be false read as a
+claim about the module. Go links only what a binary imports, so `gaze-agent`
+still has no external dependencies at all and `gaze` still has exactly two.
+`make release` is where that is worth checking, not `go.sum`.
 
 The alternative is an alt-screen, raw mode, and ANSI by hand, in under a
 hundred lines. What Bubble Tea supplies for the extra weight is key decoding,
@@ -477,9 +544,10 @@ produce something that runs there. `run` cross-compiles the real artifact and
 runs it under Docker against a Linux kernel. `release` builds `linux/arm64` and
 `linux/amd64` only, because there is nothing to ship for macOS or Windows.
 
-`docker-build`, `deploy`, and `logs` from the house target set are absent.
-There is no service to deploy and no compose file to build, and stub targets
-that print a message are worse than no targets.
+`docker-build`, `deploy`, and `logs` were absent while there was no service to
+deploy. `gaze-server` is that service, so the three targets exist and act on it
+alone. `release` keeps building the two static binaries; the server ships as a
+container image and is never a release asset.
 
 `CGO_ENABLED=0` throughout. With cgo on, `os/user` resolves names through the
 host's NSS and the binary stops being portable across distributions, which
@@ -534,13 +602,17 @@ would be both slow and rude. Checking is something you ask for.
 ### Release asset names are now a contract
 
 Every installed gaze asks for `gaze-linux-<arch>` and `SHA256SUMS` under
-`/releases/latest/download/`. Those three names are a compatibility surface
-with every copy already on someone's machine, and they are the only one this
-project has: there is no config file, no on-disk state, and no wire format.
+`/releases/latest/download/`, and every installed agent asks for
+`gaze-agent-linux-<arch>` beside them. Those names are a compatibility surface
+with every copy already on someone's machine.
 
 Renaming an asset, or dropping `SHA256SUMS`, breaks `--update` for everyone
 already installed, and their only route back is a manual download. Add new
 assets alongside the existing names rather than renaming them.
+
+The wire format is now a second such surface, and a stricter one, because an
+agent that fails to parse a reply keeps running. See "The wire format is not
+the snapshot".
 
 ### The replacement is a create-and-rename
 
@@ -563,6 +635,203 @@ download arrived intact and nothing more. It is not a signature and does not
 establish who built the release. Adding `minisign` would fix that for far less
 work than an apt repository, and is the first thing to do if that ever matters.
 
+## The wire format is not the snapshot
+
+`report.Report` is a separate type from `metrics.Snapshot`, and
+`report.From` reduces one to the other. Sending a `Snapshot` would have been
+less code and it is the wrong answer twice over.
+
+**Size.** A `Snapshot` is shaped for a display redrawing once a second: the
+whole process table, per-core CPU, cumulative counters beside the rates derived
+from them. On a host with 400 processes that is on the order of 150 KB of JSON.
+At one report a minute it comes to several gigabytes per host per year, which is
+the resource problem that made Zabbix unusable here, rebuilt from scratch. A
+report carrying scalars, per-interface and per-device rates, mounts, process
+*counts*, and the few busiest processes is a couple of KB, and a few hundred
+bytes gzipped.
+
+**Rate of change.** `Snapshot` is internal to this project and should stay free
+to churn as the display grows. A wire format is a contract with agents already
+installed and with rows already in a database. Those two things want opposite
+freedoms, so they are two types.
+
+The reduction is one-way and lossy on purpose. Recording only the top few
+processes rather than all of them is the single biggest sizing decision in the
+system: a row per process per interval is what makes monitoring databases
+enormous, and it is almost never what you go back and read.
+
+`Report` carries a `Schema` integer. A server must accept an older schema than
+it knows, because an agent updates when it is told to, not when the server does.
+
+## Sample often, report rarely
+
+The agent collects on a short interval and posts on a long one, sending the
+minimum, maximum, and mean of each field over the samples in between. The
+default is a 10-second sample and a 60-second report.
+
+Collecting and posting at the same 60 seconds would be simpler and would throw
+away exactly what a monitor is for. Every rate here is a difference over the
+interval, so a 60-second collection yields a 60-second average, and a CPU spike
+lasting 20 seconds does not appear at all. Sampling six times as often costs six
+times a collection, which is about 1.1 ms of CPU each, and nothing in bandwidth.
+
+The same reasoning applies to the roll-up tiers in the database, and for the same
+reason those keep minimum and maximum beside the mean. See "SQLite, and what six
+months costs".
+
+## Absent is not zero
+
+`Snapshot.Absent` names the fields the running platform cannot supply. A
+consumer renders those as a dash, and the server stores NULL.
+
+Linux supplies everything today, so `Absent` is empty and the field looks like
+dead weight. It is there because the moment a second platform exists it stops
+being: Windows publishes no per-process swap figure and no vendor-independent
+sensor API, and without a third state both arrive as `0`.
+
+In the TUI a wrong zero is cosmetic. In a database it is a lie with a timestamp
+on it, and after six months there is no way to separate "this host had no swap
+in use" from "nobody ever asked". The distinction cannot be recovered later, so
+it has to exist before the first row is written.
+
+This is the same distinction the container code already makes between
+`ContainersDisabled` and an empty `ContainerRuntime`, one level up. Switched
+off, not found, and not supported are three facts, and reporting any one of them
+as another sends you looking for a problem you do not have.
+
+## The platform boundary exists before the second platform does
+
+`metrics` is split into `collector_linux.go` and `collector_unsupported.go`
+under build constraints, with `Snapshot` as the platform-neutral contract
+between them. Only Linux is implemented. There is no Windows support and none is
+scheduled.
+
+The boundary is drawn anyway because the cost is asymmetric. Drawn now, while
+one platform fills it, it is a file split and a build tag. Drawn later, after an
+agent and a server depend on the package, it is a refactor of everything that
+imports it, plus the `Absent` problem above with rows already in the database.
+
+The parsers keep the shape described in "Parsers take a filesystem, not a path".
+They stay Linux-only in their assumptions and free of build constraints in their
+signatures, so the fixture tests keep running on macOS.
+
+What a Windows collector would actually take, recorded so the estimate is not
+made again from scratch: there is no `/proc`, so none of the parsing is reusable
+and the work is Win32 through `golang.org/x/sys/windows` —
+`NtQuerySystemInformation` for processes and per-core CPU, `GlobalMemoryStatusEx`
+for memory, `GetIfTable2` for interfaces, `GetLogicalDriveStrings` and
+`GetDiskFreeSpaceEx` for filesystems, `DeviceIoControl` for disk I/O. Roughly 600
+to 1000 lines, with no fixture replay and no macOS edit-test loop. Avoid WMI: a
+query can take hundreds of milliseconds, which defeats the point. Sensors and
+per-process command lines would be `Absent`, the latter because reading another
+process's PEB needs elevation.
+
+macOS collection is not planned at all. It needs Mach APIs, and macOS is the
+development machine rather than a monitored one.
+
+## The agent is told what to do in the reply
+
+The server never opens a connection to an agent. It answers the agent's POST
+with a directive: a reporting interval, what to collect, and optionally an
+instruction to update.
+
+That keeps the whole system at plain request and response. A WebSocket or a
+long poll would let the server push, at the cost of a connection to nurse
+through restarts and proxies, and there is nothing to push that cannot wait
+until the next report. It also means an agent behind NAT needs no inbound path,
+which is most of them.
+
+**The directive carries a generation number and the agent echoes it back.** The
+server learns whether a change actually took effect, which is the difference
+between configuration and hope when an agent has been offline for an hour or
+someone has rolled a binary back.
+
+**A remote update is refused unless the agent was started with
+`-allow-remote-update`, and the default is off.** Be clear about what this
+feature is: a documented path for the server to run arbitrary code on every
+monitored host. The checksum in `internal/update` proves the download arrived
+intact; it is not a signature and says nothing about whether the server that
+ordered the update is the one you trust. Requiring a flag makes enabling it a
+deliberate act, recorded in the unit file. Rollouts are staggered for the
+separate reason that ten agents updating at once all fetch from GitHub at once.
+
+## Two herds, and they need different fixes
+
+**On recovery**, backoff is jittered across the full range:
+`sleep = rand(0, min(cap, base * 2^attempt))`, capped at about fifteen minutes.
+Plain exponential backoff keeps agents that failed together retrying together,
+because they are all computing the same delay from the same outage. The
+randomness is the part that decorrelates them, so it is not a refinement of the
+backoff, it is the point of it. Backlogs go up in bounded batches, and the
+server slows an agent with `429` and `Retry-After` rather than by falling over.
+
+**In steady state**, a fixed 60-second interval puts every agent on the minute
+boundary, because they were installed by the same script. Each agent adds an
+offset derived from a hash of its host ID. Derived rather than random, so it is
+stable across restarts and the load stays spread instead of re-clumping.
+
+The buffer that survives an outage is a bounded ring, about sixty reports, an
+hour at the default interval. Bounded is the important word: an unbounded buffer
+converts a long server outage into an out-of-memory kill on the host you were
+trying to watch, which is a monitoring system causing the incident.
+
+## SQLite, and what six months costs
+
+Storage is SQLite through `modernc.org/sqlite`, in WAL mode, with a single
+writer goroutine. That driver is pure Go, so `CGO_ENABLED=0` survives and the
+server stays one static binary in its container.
+
+The alternative was fixed-width append-only files, one per host per day, which
+is about 92 KB per host per day and has no dependency at all. It loses on
+queries: retention, roll-ups, and alert evaluation are all things SQL does in a
+line and hand-rolled storage does in a page. `modernc.org/sqlite` is a large
+dependency, and it is on the server, which is the component that can afford one.
+
+Concurrency needs no thought at this scale. Ten hosts at one report a minute is
+one write every six seconds.
+
+Sizing, from row arithmetic rather than measurement. Ten hosts, 60-second
+reports, 182 days is 2.6 million host-level rows, and at roughly 150 bytes a row
+with indexes that is about 400 MB. The per-interface, per-device, and per-mount
+series are the bulk: a host with three interfaces, two disks, and four mounts
+adds nine rows an interval, or about another 1.4 GB. Call it 2 to 3 GB for six
+months at full resolution.
+
+That would fit, and the roll-up exists anyway:
+
+| Tier | Resolution | Retention |
+|---|---|---|
+| raw | 60s | 7 days |
+| five-minute | 5m | 90 days |
+| hourly | 1h | 2 years |
+
+It costs little to write now and cannot be backfilled later, and it turns six
+months into two years for under 500 MB. Rolled-up rows keep the minimum and
+maximum beside the mean, or every spike disappears the moment the raw tier
+expires, which is exactly when you would go looking for one.
+
+## Alerting has two evaluation paths, and one of them is a timer
+
+Threshold rules are evaluated when a report is stored, not on a schedule. The
+work is already in memory, and the alert fires on the report that crossed the
+line rather than up to a minute later.
+
+Staleness cannot work that way. "No report from this host in three intervals"
+is a statement about a report that did not arrive, so nothing triggers its
+evaluation and it needs a periodic sweep. It is also the most valuable rule in
+the system, because it is the one that fires when a machine dies, so the sweep
+is not an afterthought to the event-driven path.
+
+Every rule holds a state machine per host: OK, PENDING, FIRING, back to OK, with
+a duration before PENDING becomes FIRING and mail only on a transition.
+Evaluating a bare threshold every minute and mailing on every true result is how
+alerting becomes a folder you stop reading. "Above 90 percent for fifteen
+minutes" is a different and far more useful statement than "above 90 percent".
+
+Mail goes through `github.com/hammondus/mailer`. `MemorySender` lets the whole
+alerting path be tested with no SMTP anywhere, and `NewLog` composes and logs in
+development, which is what you want the first fifty times a rule misfires.
+
 ## Known gaps
 
 - **No process actions.** glances can send a signal to a process. Ending a
@@ -571,8 +840,16 @@ work than an apt repository, and is the first thing to do if that ever matters.
   not just a key binding.
 - **No GPU, IRQ, or per-process I/O panels.** All three are available under
   `/proc` and `/sys` and none is written.
-- **No alert history.** glances keeps a log of threshold crossings. This keeps
-  60 samples per gauge for the sparklines and nothing else.
+- **The TUI has no alert history.** glances keeps a log of threshold
+  crossings. `gaze` keeps 60 samples per gauge for the sparklines and nothing
+  else; history and alerting belong to the server.
+- **No Windows collection**, and no macOS collection. The boundary is drawn and
+  nothing is behind it. See "The platform boundary exists before the second
+  platform does".
+- **The TUI cannot read from a server.** `gaze` renders a `Snapshot` it
+  collected itself. Rendering one rebuilt from a server would be a small amount
+  of work, since the display already draws from a value rather than reading
+  anything, and `report` should not be shaped in a way that forecloses it.
 - **Releases are not signed.** `gaze --update` verifies a checksum, which
   catches corruption but not a compromised release. See "The updater uses no
   API".

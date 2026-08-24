@@ -228,7 +228,9 @@ render the result, run:
 GAZE_LIVE=1 go test ./internal/ui -run TestLiveFrame -v
 ```
 
-For the choices behind the code, see [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md).
+For the choices behind the code, see
+[DESIGN-DECISIONS.md](DESIGN-DECISIONS.md). For what is planned beyond the
+current TUI — an agent and a central server — see [ROADMAP.md](ROADMAP.md).
 
 ## Layout
 
