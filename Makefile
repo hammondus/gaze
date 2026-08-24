@@ -48,6 +48,12 @@ run: $(DIST)/$(BIN)-linux-arm64 ## Run the real binary against a Linux kernel.
 release: $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64 $(DIST)/SHA256SUMS ## Build the deploy artifacts.
 	@ls -lh $(DIST)
 
+# dist is also the name of the output directory, so without .PHONY make finds
+# the directory, calls the target up to date, and reports success having built
+# nothing. Copying a stale binary to a server is the failure that follows.
+.PHONY: dist
+dist: release ## Build the deploy artifacts. Alias for release.
+
 # Checksums let a target machine confirm it got the bytes you built. The tool
 # is named sha256sum on Linux and shasum on macOS.
 $(DIST)/SHA256SUMS: $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64
