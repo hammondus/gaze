@@ -59,6 +59,29 @@ The binaries are static, so they run on any Linux of that architecture,
 including a `scratch` or `alpine` container. There is nothing to install
 alongside them and nothing to configure.
 
+### Updating
+
+```
+gaze --update
+```
+
+It reads the latest version, downloads the build for this machine, checks it
+against the published `SHA256SUMS`, and replaces itself. Replacing a running
+executable is safe on Linux, so you can run this from inside a `gaze` session.
+
+If `gaze` lives somewhere only root can write, such as `/usr/local/bin`, the
+update needs `sudo`. It says so rather than failing with a permissions error.
+
+To ask without installing anything, use `gaze --check-update`. It exits 1 when
+a newer release exists, so it works in a condition:
+
+```
+gaze --check-update || echo "time to update"
+```
+
+The checksum confirms the download arrived intact. It is not a signature, so it
+does not prove who built the release.
+
 ### From source
 
 To build from source, you need Go 1.26 or later:

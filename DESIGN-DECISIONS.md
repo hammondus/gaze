@@ -378,6 +378,73 @@ that print a message are worse than no targets.
 host's NSS and the binary stops being portable across distributions, which
 defeats the point of shipping one file.
 
+## Distribution is a release and a self-update, not an apt repository
+
+An apt repository was measured before it was ruled out. The mechanics are
+small: a `.deb` is about 20 lines of shell and comes out at 2.0 MB with no
+declared dependencies, and a signed repository is another 25 lines of
+`apt-ftparchive` and `gpg --clearsign` over six static files that GitHub Pages
+would host for nothing.
+
+The setup is not the problem. The ongoing cost is:
+
+- **The signing key becomes a permanent liability.** When it expires, every
+  user's `apt update` fails with a signature error until they install a new key
+  by hand. Lose it and you cannot publish; leak it and someone else can publish
+  as you.
+- **Every release must regenerate and re-sign the metadata, and must never
+  half-fail.** A `Release` file that disagrees with its `Packages` index breaks
+  `apt update` for everyone until it is fixed.
+- **It serves Debian and Ubuntu only.** Alpine, RHEL, Arch, and anything in a
+  container get nothing.
+
+And it would buy almost nothing. Docker needs an apt repository because Docker
+has real dependencies, systemd units, configuration in `/etc`, and several
+interlocking packages. gaze is one static file in `/usr/bin` with no
+dependencies, no configuration, and no service. Strip out dependency
+resolution, maintainer scripts, and configuration handling, and all that is
+left is `apt upgrade` noticing a new version.
+
+`gaze --update` provides that for about 250 lines, no infrastructure, no key to
+protect, and it works on every distribution rather than two.
+
+## The updater uses no API
+
+`internal/update` makes plain web requests. The version comes from the redirect
+that `/releases/latest` issues to `/releases/tag/<version>`, read from the
+`Location` header without following it. The binary and `SHA256SUMS` come from
+`/releases/latest/download/<name>`.
+
+GitHub documents a limit of 60 unauthenticated REST API calls per hour per IP
+address. Reading the redirect avoids the API altogether, so that limit never
+applies. The `User-Agent` names the program, its version, and the project URL,
+so anyone looking at their logs can tell what is calling and where to complain.
+
+There is deliberately **no version check at start-up**. A monitor should not
+make a network request to draw its first frame, and a check on every launch
+would be both slow and rude. Checking is something you ask for.
+
+### The replacement is a create-and-rename
+
+The download is written to a temporary file **in the target's own directory**,
+not in `/tmp`, because a rename only works within one filesystem and `/tmp` is
+frequently a separate one. The mode is set to 0755 before the rename, since
+`os.CreateTemp` produces 0600 and an installed binary at 0600 is not runnable.
+
+Order matters, and it is: check the directory is writable, fetch the expected
+checksum, download while hashing, compare, and only then rename. A download
+that fails verification is removed and never reaches the target path;
+`TestApplyRejectsABadChecksum` asserts exactly that.
+
+`os.Rename` is atomic within a filesystem, and Linux keeps a running program's
+inode alive after its path is replaced, so updating from inside a running gaze
+session is safe.
+
+The checksum and the binary come from the same server, so it proves the
+download arrived intact and nothing more. It is not a signature and does not
+establish who built the release. Adding `minisign` would fix that for far less
+work than an apt repository, and is the first thing to do if that ever matters.
+
 ## Known gaps
 
 - **No process actions.** glances can send a signal to a process. Ending a
@@ -388,6 +455,9 @@ defeats the point of shipping one file.
   `/proc` and `/sys` and none is written.
 - **No alert history.** glances keeps a log of threshold crossings. This keeps
   60 samples per gauge for the sparklines and nothing else.
+- **Releases are not signed.** `gaze --update` verifies a checksum, which
+  catches corruption but not a compromised release. See "The updater uses no
+  API".
 - **cmdline is read for every process on every refresh.** That is one extra
   file read per process, a few milliseconds for a few hundred processes. If it
   ever shows up in a profile, sort first and read the command line only for the

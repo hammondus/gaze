@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hammondus/gaze/internal/metrics"
 	"github.com/hammondus/gaze/internal/ui"
+	"github.com/hammondus/gaze/internal/update"
 )
 
 // version is set at build time with -ldflags "-X main.version=…". Without it,
@@ -25,11 +26,17 @@ func main() {
 	procPath := flag.String("procfs", "/proc", "`path` to the proc filesystem")
 	sysPath := flag.String("sysfs", "/sys", "`path` to the sys filesystem")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	doUpdate := flag.Bool("update", false, "replace this executable with the latest release")
+	checkUpdate := flag.Bool("check-update", false, "report whether a newer release exists, then exit")
 	flag.Usage = usage
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("gaze", buildVersion())
+		return
+	}
+	if *doUpdate || *checkUpdate {
+		runUpdate(*doUpdate)
 		return
 	}
 	if *interval < 100*time.Millisecond {
@@ -60,6 +67,35 @@ func main() {
 	}
 }
 
+// runUpdate handles --update and --check-update.
+//
+// Both exit non-zero on failure so a cron entry or a deploy script can tell
+// that nothing happened. --check-update exits 1 when an update is available,
+// which is what makes it usable in a shell condition.
+func runUpdate(apply bool) {
+	up, err := update.New(buildVersion())
+	if err != nil {
+		fatal("%v", err)
+	}
+	if apply {
+		if err := up.Apply(os.Stdout); err != nil {
+			fatal("%v", err)
+		}
+		return
+	}
+
+	latest, differs, err := up.Available()
+	if err != nil {
+		fatal("%v", err)
+	}
+	if !differs {
+		fmt.Printf("gaze %s is the published version\n", latest)
+		return
+	}
+	fmt.Printf("gaze %s is available; this is %s\nrun: gaze --update\n", latest, buildVersion())
+	os.Exit(1)
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `gaze %s — a system monitor for Linux terminals.
 
@@ -70,6 +106,10 @@ Flags:
 `, buildVersion())
 	flag.PrintDefaults()
 	fmt.Fprint(os.Stderr, `
+Updating:
+  gaze --check-update   report whether a newer release exists
+  gaze --update         download and install it, verifying the checksum
+
 Keys:
   q            quit
   c m s t p n u
