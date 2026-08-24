@@ -424,6 +424,17 @@ There is deliberately **no version check at start-up**. A monitor should not
 make a network request to draw its first frame, and a check on every launch
 would be both slow and rude. Checking is something you ask for.
 
+### Release asset names are now a contract
+
+Every installed gaze asks for `gaze-linux-<arch>` and `SHA256SUMS` under
+`/releases/latest/download/`. Those three names are a compatibility surface
+with every copy already on someone's machine, and they are the only one this
+project has: there is no config file, no on-disk state, and no wire format.
+
+Renaming an asset, or dropping `SHA256SUMS`, breaks `--update` for everyone
+already installed, and their only route back is a manual download. Add new
+assets alongside the existing names rather than renaming them.
+
 ### The replacement is a create-and-rename
 
 The download is written to a temporary file **in the target's own directory**,
