@@ -35,21 +35,25 @@ wg0                   2.0K/s   900B/s   sda                      0/s    96K/s   
 
 ## Install
 
-Download the binary for your architecture. To find out which you need, run
-`uname -m`: `aarch64` or `arm64` takes the arm64 build, `x86_64` takes amd64.
+Download the binary, check it against the published checksum, and put it on
+your path:
 
-```
-curl -fsSL https://github.com/hammondus/gaze/releases/latest/download/gaze-linux-arm64 -o gaze
-chmod +x gaze
-sudo install -m755 gaze /usr/local/bin/gaze
+```sh
+case "$(uname -m)" in
+  aarch64|arm64) arch=arm64 ;;
+  x86_64|amd64)  arch=amd64 ;;
+  *) echo "unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+base=https://github.com/hammondus/gaze/releases/latest/download
+curl -fsSL "$base/gaze-linux-$arch" -o "gaze-linux-$arch"
+curl -fsSL "$base/SHA256SUMS" -o SHA256SUMS
+grep "gaze-linux-$arch" SHA256SUMS | sha256sum -c
+sudo install -m755 "gaze-linux-$arch" /usr/local/bin/gaze
 ```
 
-To confirm you got the bytes that were built, check it against the published
-list:
-
-```
-curl -fsSL https://github.com/hammondus/gaze/releases/latest/download/SHA256SUMS | sha256sum -c --ignore-missing
-```
+The checksum step is worth keeping. It confirms you received the bytes that
+were built, and it works with both GNU coreutils and the BusyBox `sha256sum`
+that Alpine ships.
 
 The binaries are static, so they run on any Linux of that architecture,
 including a `scratch` or `alpine` container. There is nothing to install
