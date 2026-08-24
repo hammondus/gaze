@@ -2,10 +2,12 @@ package metrics
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -213,6 +215,90 @@ func TestFirstCollectionHasNoRates(t *testing.T) {
 	s2 := c.Collect(context.Background())
 	if s2.CPU.Busy == 0 {
 		t.Error("second frame still reports no CPU activity")
+	}
+}
+
+// countingFS records every Open, so a test can assert that a file was not
+// merely ignored but never read.
+type countingFS struct {
+	fs.FS
+	mu    sync.Mutex
+	opens map[string]int
+}
+
+func counting(inner fs.FS) *countingFS {
+	return &countingFS{FS: inner, opens: make(map[string]int)}
+}
+
+func (c *countingFS) Open(name string) (fs.File, error) {
+	c.mu.Lock()
+	c.opens[name]++
+	c.mu.Unlock()
+	return c.FS.Open(name)
+}
+
+func (c *countingFS) count(name string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.opens[name]
+}
+
+// TestKernelThreadsSkipPointlessReads checks the largest single saving in a
+// collection.
+//
+// A kernel thread has no user-space address space, so status and cmdline hold
+// nothing: no command line, no VmSwap line, and no user but root. On an
+// ordinary host most processes are kernel threads, and reading those two files
+// for each of them was two thirds of the cost of a collection.
+//
+// The assertion is on the reads, not on the values. Values would still be
+// right if the files were read and discarded, which is the thing being fixed.
+func TestKernelThreadsSkipPointlessReads(t *testing.T) {
+	proc := counting(loadMapFS(t, "testdata/proc"))
+	c := NewWithSource(Source{Proc: proc, Sys: loadMapFS(t, "testdata/sys")}, Options{})
+	s := c.Collect(context.Background())
+
+	// PID 9021 is the fixture kworker; 842 is an ordinary process.
+	for _, f := range []string{"9021/status", "9021/cmdline"} {
+		if n := proc.count(f); n != 0 {
+			t.Errorf("read %s %d times; a kernel thread has nothing in it", f, n)
+		}
+	}
+	for _, f := range []string{"842/status", "842/cmdline"} {
+		if n := proc.count(f); n == 0 {
+			t.Errorf("never read %s, which an ordinary process needs", f)
+		}
+	}
+	// Its stat file is still read: that is where the kernel thread flag is.
+	if n := proc.count("9021/stat"); n == 0 {
+		t.Error("never read 9021/stat")
+	}
+
+	var kthread, normal *Process
+	for i := range s.Processes {
+		switch s.Processes[i].PID {
+		case 9021:
+			kthread = &s.Processes[i]
+		case 842:
+			normal = &s.Processes[i]
+		}
+	}
+	if kthread == nil || normal == nil {
+		t.Fatal("fixture processes missing from the snapshot")
+	}
+
+	// Skipping the reads must not change what is reported.
+	if !kthread.Kernel || kthread.Swap != 0 || kthread.Cmdline != "" {
+		t.Errorf("kernel thread = %+v", kthread)
+	}
+	if kthread.User == "" {
+		t.Error("a kernel thread should still report an owner")
+	}
+	if kthread.Threads != 1 || kthread.Name != "kworker/2:1" {
+		t.Errorf("stat-derived fields lost: threads=%d name=%q", kthread.Threads, kthread.Name)
+	}
+	if normal.Swap == 0 || normal.Cmdline == "" {
+		t.Errorf("ordinary process lost its status or cmdline: %+v", normal)
 	}
 }
 

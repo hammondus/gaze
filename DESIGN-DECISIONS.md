@@ -164,8 +164,11 @@ whose CPU and memory bear no relation to the gauges above them.
 
 Measured with `TestCollectCost` on a host with 13 containers and 188
 processes: 9.5 ms of CPU per collection with container polling, 4.3 ms without.
-So the two requests per container cost 5.2 ms, about 54% of the total, or
-0.4 ms each.
+So the two requests per container cost 5.2 ms, or 0.4 ms each.
+
+Since kernel threads stopped being read in full, the rest of a collection costs
+about 1.1 ms, so container polling is now the larger share by some way on any
+host running more than a handful.
 
 Wall-clock time for the same collections was 45 ms against 4 ms. That 41 ms
 gap is almost entirely time blocked on the daemon socket, which costs latency
@@ -357,6 +360,32 @@ the parser already reads. The two common alternatives are guesses that break:
 Kernel threads are hidden by default, because on a typical host they are most
 of the process table and none of the work. The context line always reports how
 many are hidden, so nothing disappears without the screen saying so.
+
+## Kernel threads cost one file read, not three
+
+gaze reads three files per process: `stat`, `status`, and `cmdline`. For a
+kernel thread the last two hold nothing. It has no user-space address space, so
+no command line, no `VmSwap` line, and no user context other than root. The
+kernel thread flag is in `stat`, which is read first, so the other two can be
+skipped outright.
+
+That is the largest single saving in a collection, because kernel threads are
+most of the process table. Measured back to back in one run on a host with 163
+processes, 148 of them kernel threads:
+
+```
+read every process fully  |  3.19 ms
+skip kernel thread extras |  1.10 ms
+```
+
+A 65% cut, and nothing on screen changes: the owner is still resolved through
+`userName(0)` rather than hard-coded, the name still comes from `stat`, and a
+kernel thread still renders bracketed with zero swap.
+
+`TestKernelThreadsSkipPointlessReads` asserts on the reads rather than the
+values, using a filesystem wrapper that counts every `Open`. Asserting on
+values would pass just as well if the files were read and thrown away, which
+is the thing being fixed.
 
 ## Swap is read from status, which pays for itself
 

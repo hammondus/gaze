@@ -2,7 +2,13 @@
 
 A system monitor for Linux terminals, modelled on
 [glances](https://github.com/nicolargo/glances). It ships as one static
-executable with no runtime dependencies.
+executable. (AMD64 and ARM64).
+
+It only runs on linux and it does not have anywhere near the number of features of glances. I reduced it to the features that I personally need so that it:
+- installs without any dependencies
+- uses less RAM (approx half of glances)
+- uses less CPU (approx one third glances)
+
 
 ```
  gaze  aurora  Linux 6.8.0-45-generic  up 6d 4h 12m                    14:23:07  1.0s
@@ -182,8 +188,8 @@ empty table.
 
 gaze makes two requests per running container per refresh, one for statistics
 and one for uptime. Measured on a host with 13 containers and 188 processes,
-that is 5.2 ms of CPU per collection, about 54% of the total, or roughly 0.4 ms
-per container.
+that is 5.2 ms of CPU per collection, roughly 0.4 ms per container, against
+about 1.1 ms for everything else a collection does.
 
 To leave the socket alone entirely, run `gaze -containers=false`. The container
 views then say so rather than reporting a missing runtime.

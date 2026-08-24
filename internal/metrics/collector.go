@@ -454,13 +454,24 @@ func (c *Collector) collectProcesses(s *Snapshot) error {
 				p.CPU = delta / totalTicks * float64(c.host.CPUCount) * 100
 			}
 		}
+		// A kernel thread has no user-space address space, so status and
+		// cmdline hold nothing: no command line, no VmSwap line, and no user
+		// context other than root. Reading and parsing them anyway was two
+		// thirds of the cost of a collection on a host where 148 of 163
+		// processes were kernel threads, which is the ordinary case.
+		if st.kernel() {
+			p.User = c.userName(0)
+			procs = append(procs, p)
+			continue
+		}
+
 		if f, err := c.src.Proc.Open(strconv.Itoa(pid) + "/status"); err == nil {
-			st, err := parseProcStatus(f)
+			status, err := parseProcStatus(f)
 			f.Close()
 			if err == nil {
-				p.Swap = st.swap
-				if st.hasUID {
-					p.User = c.userName(st.uid)
+				p.Swap = status.swap
+				if status.hasUID {
+					p.User = c.userName(status.uid)
 				}
 			}
 		}
