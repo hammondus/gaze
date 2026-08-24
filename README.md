@@ -136,6 +136,7 @@ gaze
 | `-i` | `1s` | Refresh interval |
 | `-procfs` | `/proc` | Path to the proc filesystem |
 | `-sysfs` | `/sys` | Path to the sys filesystem |
+| `-containers` | `true` | Collect container statistics. Set `false` to leave the runtime socket alone |
 | `-version` | | Print the version and exit |
 
 To read a captured pseudo-filesystem instead of the running kernel, point
@@ -176,6 +177,22 @@ Docker compatibility layer. To expose the rootless socket, run
 A remote daemon over TCP is out of scope, so a `tcp://` value is ignored.
 Without a reachable runtime, the container views say so rather than showing an
 empty table.
+
+### The cost of container statistics
+
+gaze makes two requests per running container per refresh, one for statistics
+and one for uptime. Measured on a host with 13 containers and 188 processes,
+that is 5.2 ms of CPU per collection, about 54% of the total, or roughly 0.4 ms
+per container.
+
+To leave the socket alone entirely, run `gaze -containers=false`. The container
+views then say so rather than reporting a missing runtime.
+
+To measure it on your own host:
+
+```
+GAZE_LIVE=1 go test ./internal/metrics -run TestCollectCost -v
+```
 
 ## Develop
 

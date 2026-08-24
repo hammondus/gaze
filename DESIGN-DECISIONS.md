@@ -160,6 +160,30 @@ A `tcp://` value in `DOCKER_HOST` is ignored rather than half-honoured. This
 program reads the machine it runs on; a remote daemon would report containers
 whose CPU and memory bear no relation to the gauges above them.
 
+### Container polling is over half the collection cost
+
+Measured with `TestCollectCost` on a host with 13 containers and 188
+processes: 9.5 ms of CPU per collection with container polling, 4.3 ms without.
+So the two requests per container cost 5.2 ms, about 54% of the total, or
+0.4 ms each.
+
+Wall-clock time for the same collections was 45 ms against 4 ms. That 41 ms
+gap is almost entirely time blocked on the daemon socket, which costs latency
+and nearly no CPU. Timing a collection with a stopwatch therefore reports the
+socket round-trip and calls it work; `TestCollectCost` reports both numbers
+side by side so the two cannot be confused. They answer different questions:
+CPU is what shows up when comparing against another monitor, and wall time
+matters only if it approaches the refresh interval.
+
+`-containers=false` skips the whole thing. No socket is probed and no request
+is made. That exists for the measurement above, for hosts running enough
+containers that the cost matters, and because not everyone wants a monitor
+talking to their Docker socket.
+
+A container view with collection switched off says so, rather than reporting
+that no runtime was found. Those are different facts and one must not be
+reported as the other.
+
 ### Uptime costs a second request, and that is the right call
 
 `Uptime` needs `State.StartedAt`, which only the inspect endpoint carries.
@@ -174,7 +198,11 @@ uptime that never corrected itself. Paying 4 ms to avoid a wrong number that
 never heals is not a trade worth making.
 
 Both requests run in the same bounded pool, so the concurrency limit counts
-containers being polled rather than requests in flight.
+containers being polled rather than requests in flight. They run in sequence
+within each container's goroutine, which doubles the latency depth: issuing
+them concurrently would roughly halve the 45 ms wall time measured above. That
+is worth doing if the wall time ever approaches the refresh interval, and it
+would not change the CPU cost.
 
 ### Block I/O folds case, and ignores the totals
 

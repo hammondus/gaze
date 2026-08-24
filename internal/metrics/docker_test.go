@@ -10,6 +10,40 @@ import (
 	"time"
 )
 
+// TestDisableContainersProbesNothing checks that switching container
+// collection off means no socket is opened and no daemon is asked, rather than
+// asking and discarding the answer.
+func TestDisableContainersProbesNothing(t *testing.T) {
+	c := NewWithSource(Source{
+		Proc: os.DirFS("testdata/proc"),
+		Sys:  os.DirFS("testdata/sys"),
+	}, Options{DisableContainers: true})
+
+	if c.docker != nil {
+		t.Error("a runtime client was created despite DisableContainers")
+	}
+	s := c.Collect(context.Background())
+	if !s.ContainersDisabled {
+		t.Error("the snapshot does not report that collection is off")
+	}
+	if s.ContainerRuntime != "" {
+		t.Errorf("runtime = %q, want empty", s.ContainerRuntime)
+	}
+	if len(s.Containers) != 0 {
+		t.Errorf("containers = %d, want none", len(s.Containers))
+	}
+
+	// With collection on, the snapshot must not claim it is off, whether or
+	// not a daemon happens to be reachable on the machine running the test.
+	on := NewWithSource(Source{
+		Proc: os.DirFS("testdata/proc"),
+		Sys:  os.DirFS("testdata/sys"),
+	}, Options{})
+	if on.Collect(context.Background()).ContainersDisabled {
+		t.Error("the default reports container collection as off")
+	}
+}
+
 // TestSocketCandidateOrder checks that an explicit setting wins over the
 // defaults, and that a TCP daemon is ignored.
 func TestSocketCandidateOrder(t *testing.T) {
@@ -176,7 +210,7 @@ func TestLiveContainers(t *testing.T) {
 	if os.Getenv("GAZE_LIVE") == "" {
 		t.Skip("set GAZE_LIVE=1 and start a container named mg-busy")
 	}
-	c := New()
+	c := New(Options{})
 	if c.docker == nil {
 		t.Skip("no docker daemon reachable")
 	}

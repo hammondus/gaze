@@ -56,7 +56,7 @@ func loadMapFS(t *testing.T, root string) fstest.MapFS {
 func TestCollectDeltas(t *testing.T) {
 	proc := loadMapFS(t, "testdata/proc")
 	sys := loadMapFS(t, "testdata/sys")
-	c := NewWithSource(Source{Proc: proc, Sys: sys})
+	c := NewWithSource(Source{Proc: proc, Sys: sys}, Options{})
 
 	// Advance the machine by 1000 CPU jiffies across two cores, of which
 	// PID 842 consumed 100.
@@ -169,7 +169,7 @@ func TestCollectDeltas(t *testing.T) {
 // The first frame must show zeroes, not nonsense.
 func TestFirstCollectionHasNoRates(t *testing.T) {
 	proc := loadMapFS(t, "testdata/proc")
-	c := NewWithSource(Source{Proc: proc, Sys: loadMapFS(t, "testdata/sys")})
+	c := NewWithSource(Source{Proc: proc, Sys: loadMapFS(t, "testdata/sys")}, Options{})
 
 	// Advance every counter as if a busy second had passed, but collect
 	// immediately, the way Init does.
@@ -222,7 +222,7 @@ func TestCollectFiltersPartitions(t *testing.T) {
 	c := NewWithSource(Source{
 		Proc: loadMapFS(t, "testdata/proc"),
 		Sys:  loadMapFS(t, "testdata/sys"),
-	})
+	}, Options{})
 	s := c.Collect(context.Background())
 
 	names := map[string]bool{}
@@ -254,7 +254,7 @@ func TestCollectDropsUnusedDevices(t *testing.T) {
 		Mode: 0o444,
 	}
 
-	s := NewWithSource(Source{Proc: proc, Sys: sys}).Collect(context.Background())
+	s := NewWithSource(Source{Proc: proc, Sys: sys}, Options{}).Collect(context.Background())
 	for _, d := range s.Disks {
 		if d.Name == "nbd0" {
 			t.Error("nbd0 has never done any I/O and must not be listed")

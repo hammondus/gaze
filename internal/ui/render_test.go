@@ -269,21 +269,55 @@ func TestContainerSortAndFilter(t *testing.T) {
 	}
 }
 
-// TestContainerViewWithoutRuntime checks the message shown when there is no
-// daemon, which must differ from the one shown when there are no containers.
-func TestContainerViewWithoutRuntime(t *testing.T) {
-	m := demoModel(120, 40)
-	m.view = viewContainers
-
-	m.snap.ContainerRuntime = ""
-	m.snap.Containers = nil
-	if out := stripStyle(m.View()); !strings.Contains(out, "no container runtime reachable") {
-		t.Error("the view should say no runtime is reachable")
-	}
-
-	m.snap.ContainerRuntime = "podman"
-	if out := stripStyle(m.View()); !strings.Contains(out, "no containers running on podman") {
-		t.Error("the view should name the runtime it asked")
+// TestContainerViewEmptyStates checks the three reasons the table can be
+// empty. Each has its own message, because reporting one as another sends you
+// looking for a problem you do not have.
+func TestContainerViewEmptyStates(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		set      func(m *Model)
+		want     string
+		unwanted string
+	}{
+		{
+			name: "collection switched off",
+			set: func(m *Model) {
+				m.snap.ContainersDisabled = true
+				m.snap.ContainerRuntime = ""
+				m.snap.Containers = nil
+			},
+			want:     "container collection is switched off",
+			unwanted: "no container runtime reachable",
+		},
+		{
+			name: "no runtime found",
+			set: func(m *Model) {
+				m.snap.ContainerRuntime = ""
+				m.snap.Containers = nil
+			},
+			want:     "no container runtime reachable",
+			unwanted: "switched off",
+		},
+		{
+			name: "runtime found but nothing running",
+			set: func(m *Model) {
+				m.snap.ContainerRuntime = "podman"
+				m.snap.Containers = nil
+			},
+			want:     "no containers running on podman",
+			unwanted: "reachable",
+		},
+	} {
+		m := demoModel(120, 40)
+		m.view = viewContainers
+		c.set(&m)
+		out := stripStyle(m.View())
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%s: the view should say %q", c.name, c.want)
+		}
+		if strings.Contains(out, c.unwanted) {
+			t.Errorf("%s: the view wrongly says %q", c.name, c.unwanted)
+		}
 	}
 }
 
@@ -490,7 +524,7 @@ func TestLiveFrame(t *testing.T) {
 		t.Skipf("no /proc on %s", runtime.GOOS)
 	}
 
-	col := metrics.New()
+	col := metrics.New(metrics.Options{})
 	time.Sleep(500 * time.Millisecond) // let the counters move so rates are real
 
 	m := New(col, time.Second)

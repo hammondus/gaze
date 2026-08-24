@@ -25,6 +25,7 @@ func main() {
 	interval := flag.Duration("i", time.Second, "refresh `interval`")
 	procPath := flag.String("procfs", "/proc", "`path` to the proc filesystem")
 	sysPath := flag.String("sysfs", "/sys", "`path` to the sys filesystem")
+	containers := flag.Bool("containers", true, "collect container statistics from the Docker or Podman socket")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	doUpdate := flag.Bool("update", false, "replace this executable with the latest release")
 	checkUpdate := flag.Bool("check-update", false, "report whether a newer release exists, then exit")
@@ -55,6 +56,8 @@ func main() {
 	col := metrics.NewWithSource(metrics.Source{
 		Proc: os.DirFS(*procPath),
 		Sys:  os.DirFS(*sysPath),
+	}, metrics.Options{
+		DisableContainers: !*containers,
 	})
 
 	p := tea.NewProgram(
@@ -111,6 +114,12 @@ Flags:
 `, buildVersion())
 	flag.PrintDefaults()
 	fmt.Fprint(os.Stderr, `
+Containers:
+  gaze polls the runtime socket twice per running container per refresh, for
+  statistics and for uptime. On a host running many containers that is the
+  largest single cost of a collection. To stop gaze touching the socket at
+  all, run it with -containers=false.
+
 Updating:
   gaze --check-update   report whether a newer release exists
   gaze --update         download and install it, verifying the checksum

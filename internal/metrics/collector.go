@@ -17,6 +17,7 @@ import (
 // A Collector is not safe for concurrent use. Run one, in one goroutine.
 type Collector struct {
 	src      Source
+	opts     Options
 	pageSize uint64
 
 	host   Host
@@ -53,25 +54,40 @@ type procSample struct {
 	starttime uint64
 }
 
+// Options configure a Collector. The zero value collects everything.
+type Options struct {
+	// DisableContainers stops the collector from looking for a container
+	// runtime. No socket is probed and no request is made to a daemon.
+	//
+	// This is worth having for two reasons. A host running many containers
+	// pays two requests per container per refresh, which is the largest
+	// single cost in a collection; and not everyone wants a monitor talking
+	// to their Docker socket at all.
+	DisableContainers bool
+}
+
 // New returns a Collector reading the running system.
 //
 // It takes a priming sample straight away, so the first snapshot a caller
 // receives one interval later already carries real rates rather than a screen
 // of zeros.
-func New() *Collector { return NewWithSource(NewSource()) }
+func New(opts Options) *Collector { return NewWithSource(NewSource(), opts) }
 
 // NewWithSource returns a Collector reading from an arbitrary Source. Tests
 // use it to read fixture trees, and it lets you replay a captured /proc
 // directory when chasing a reading you cannot reproduce live.
-func NewWithSource(src Source) *Collector {
+func NewWithSource(src Source, opts Options) *Collector {
 	c := &Collector{
 		src:      src,
+		opts:     opts,
 		pageSize: uint64(os.Getpagesize()),
 		users:    make(map[uint32]string),
 	}
 	c.host = c.readHost()
-	if d, err := newDockerClient(); err == nil {
-		c.docker = d
+	if !opts.DisableContainers {
+		if d, err := newDockerClient(); err == nil {
+			c.docker = d
+		}
 	}
 	c.prime()
 	return c
@@ -132,6 +148,7 @@ func (c *Collector) Collect(ctx context.Context) Snapshot {
 	if sensors, err := readSensors(c.src.Sys); err == nil {
 		s.Sensors = sensors
 	}
+	s.ContainersDisabled = c.opts.DisableContainers
 	if c.docker != nil {
 		s.ContainerRuntime = c.docker.runtime
 		cs, err := c.docker.collect(ctx)

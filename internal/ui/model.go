@@ -372,6 +372,13 @@ func (m Model) View() string {
 func (m Model) containerTable(rows int, showStopped bool) string {
 	// Every one of these lines carries colour, so each is clipped by display
 	// width rather than by rune count.
+	//
+	// Switched off and not found are different facts, and reporting one as the
+	// other sends you looking for a daemon problem you do not have.
+	if m.snap.ContainersDisabled {
+		return clipWidth(styLabel.Render("container collection is switched off"), m.width) + "\n" +
+			clipWidth(styFaint.Render("restart without -containers=false to enable it"), m.width)
+	}
 	if m.snap.ContainerRuntime == "" {
 		return clipWidth(styLabel.Render("no container runtime reachable"), m.width) + "\n" +
 			clipWidth(styFaint.Render("looked for docker.sock and podman.sock"), m.width)

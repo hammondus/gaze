@@ -35,6 +35,11 @@ type Snapshot struct {
 	// to tell "no containers" apart from "nothing to ask".
 	ContainerRuntime string
 
+	// ContainersDisabled reports that container collection was switched off,
+	// which is a different thing from finding no runtime and must not be
+	// reported as one.
+	ContainersDisabled bool
+
 	// Errs holds the failure of any collector that could not run. One
 	// unreadable source must not cost you the rest of the screen, so a
 	// collector records its error here and leaves its field zero.
