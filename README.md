@@ -199,7 +199,8 @@ beside the mean so spikes survive aggregation. It serves a web front end
 over them: a host list that tells a reporting host from a stale one from
 one that has never reported, and per-host graphs — server-rendered SVG, no
 JavaScript — with tables for filesystems, containers, and the busiest
-processes. The SSH view is still to come — see [ROADMAP.md](ROADMAP.md).
+processes. It can also serve the TUI over SSH — see
+[The SSH view](#the-ssh-view).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
 release asset:
@@ -340,8 +341,16 @@ GAZE_LIVE=1 go test ./internal/metrics -run TestCollectCost -v
 make test     # vet and test, including the linux/arm64 build
 make frame    # print one rendered frame from synthetic data
 make run      # run the real binary against a Linux kernel, under Docker
-make release  # build dist/gaze-linux-{arm64,amd64}
+make release  # build dist/gaze-linux-{arm64,amd64} and SHA256SUMS
+make publish  # create a GitHub release for the current tag and attach the artifacts
 ```
+
+`make publish` needs the `gh` CLI, a clean working tree, and a tag on
+`HEAD`; it refuses to run otherwise. It rebuilds the artifacts, then
+creates the release with generated notes. The asset names are a
+compatibility contract — every installed gaze fetches
+`gaze-linux-<arch>` and `SHA256SUMS` by name — so a release must always
+carry them.
 
 The tests run on macOS. Collection is tested against the fixture tree in
 `internal/metrics/testdata`, and the display is tested against a synthetic
