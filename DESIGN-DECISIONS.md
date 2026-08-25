@@ -25,7 +25,7 @@ execution, and agent-to-agent anything. What was out of scope and no longer is:
 a web interface and a client/server mode. See "One repository, five
 components".
 
-## One repository, five components
+## One repository, six components
 
 Everything lives in one module, `github.com/hammondus/gaze`, and builds into
 three binaries.
@@ -34,9 +34,10 @@ three binaries.
 |---|---|---|---|
 | `metrics` | Collection. The platform boundary lives here. | nothing | none |
 | `report` | The wire types, and the reduction from a snapshot. | `metrics` | none |
-| `cmd/gaze` | The TUI. | `metrics` | Bubble Tea, Lip Gloss |
+| `ui` | The Bubble Tea model and panels — a view of a `metrics.Snapshot`, not a copy of one. | `metrics` | Bubble Tea, Lip Gloss |
+| `cmd/gaze` | The TUI, over a local terminal. | `ui` | (via `ui`) |
 | `cmd/gaze-agent` | Collects and posts to a server. | `metrics`, `report`, `update` | none |
-| `cmd/gaze-server` | Ingests, stores, draws, alerts. | `report` | SQLite, mailer |
+| `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mailer, mfa, `golang.org/x/crypto` (SSH) |
 
 Two things about that table matter more than the layout.
 
@@ -63,6 +64,14 @@ The worry that one repository makes the agent heavy is unfounded. Go links per
 binary, so SQLite in `go.mod` puts nothing in `gaze-agent`. What it does cost is
 the sentence about the dependency footprint, which now has to be stated per
 binary. See "Bubble Tea earns its dependencies, and they are most of them".
+
+**`ui` exists so `cmd/gaze-server` can present a terminal view without
+duplicating one.** It was `internal/ui`, folded into `cmd/gaze`, until the
+server needed the same rendering for its SSH front end (see "The collector is
+one process; presentation is swappable, not separate"). Splitting it out is
+the same move stage 1 makes for `metrics`: a package that takes a value and
+draws it has no reason to know who is asking, whether that is a local
+terminal or an SSH session into the collector.
 
 ## Metrics come from /proc and /sys, not from a library
 
@@ -293,14 +302,14 @@ running ones off the screen.
 
 ## Bubble Tea earns its dependencies, and they are most of them
 
-Bubble Tea and Lip Gloss bring about twenty modules between them. That is the
-entire external dependency footprint of `gaze`; the collector has none.
+Bubble Tea and Lip Gloss bring about twenty modules between them.
 
-State that per binary, not per repository. Since the server arrived, `go.mod`
-also carries SQLite and the mailer, and the sentence would be false read as a
-claim about the module. Go links only what a binary imports, so `gaze-agent`
-still has no external dependencies at all and `gaze` still has exactly two.
-`make release` is where that is worth checking, not `go.sum`.
+State the footprint per binary, not per repository. `gaze-agent` has no
+external dependencies at all. `gaze-server` carries SQLite, the mailer, `mfa`,
+and — once the SSH TUI in stage 6 lands — Bubble Tea and Lip Gloss too, through
+`ui`. `gaze` carries only Bubble Tea and Lip Gloss, same as before `ui` was
+split out; it just imports them one package away rather than directly.
+`make release` is where the footprint is worth checking, not `go.sum`.
 
 The alternative is an alt-screen, raw mode, and ANSI by hand, in under a
 hundred lines. What Bubble Tea supplies for the extra weight is key decoding,
@@ -309,7 +318,19 @@ program whose whole job is a redrawing full-screen dashboard, that is the right
 trade. Lip Gloss does nearly all the visual work and is separable from Bubble
 Tea if that judgement changes.
 
-Both are pinned to their v1 lines.
+Both are pinned to their v1 lines, for now. v2 is stable — GA since February
+2026, on active patch releases since — and the API is a real improvement: a
+declarative view instead of scattered program options, a saner key and mouse
+model. Nothing gaze does needs what it adds beyond that, though: no
+hyperlinks, no gradient borders, no keyboard-enhancement protocol. The
+migration is not a rename. `View()`'s return type changes, the key-message
+types and constants change, and the whole `AdaptiveColor` background-detection
+story is replaced by a message round-trip (`tea.RequestBackgroundColor` /
+`tea.BackgroundColorMsg`) that has the same first-frame timing sensitivity
+already documented in "The first frame reports no rates". It touches
+`main.go`, most of `internal/ui` (soon `ui`), and every test that constructs a
+synthetic key message. Move to v2 once stage 1 lands, as its own commit — not
+bundled with a restructure whose whole point is a byte-identical frame.
 
 ## Collections are chained, not scheduled
 
@@ -747,13 +768,123 @@ between configuration and hope when an agent has been offline for an hour or
 someone has rolled a binary back.
 
 **A remote update is refused unless the agent was started with
-`-allow-remote-update`, and the default is off.** Be clear about what this
-feature is: a documented path for the server to run arbitrary code on every
-monitored host. The checksum in `internal/update` proves the download arrived
-intact; it is not a signature and says nothing about whether the server that
-ordered the update is the one you trust. Requiring a flag makes enabling it a
-deliberate act, recorded in the unit file. Rollouts are staggered for the
-separate reason that ten agents updating at once all fetch from GitHub at once.
+`-allow-remote-update`, and the default is off.** Be precise about what the
+directive can and cannot do: it is a bare trigger, carrying no version and no
+URL, so an agent told to update runs exactly the code path `gaze --update`
+already runs by hand — resolve GitHub's `/releases/latest` redirect, fetch,
+verify the checksum, replace. A compromised or spoofed server can make an
+opted-in agent update sooner than it otherwise would; it cannot hand the agent
+an arbitrary binary or pin it to an old, vulnerable one, because nothing in the
+directive names a target. That would need compromising the GitHub release
+itself, an identical risk for a manual update today. This has to stay true as
+the directive grows: no future field may let it name a version or a source. A
+"pin this host to version X" feature, if it is ever wanted, needs its own
+design rather than a value slotted into this one. Requiring a flag makes
+enabling remote update a deliberate act, recorded in the unit file. Rollouts
+are staggered for the separate reason that ten agents updating at once all
+fetch from GitHub at once.
+
+**Remote configuration changes are a second, independent flag, off by default
+the same way.** An agent that accepts remote interval and collection-target
+changes has not thereby accepted remote updates, and the reverse. Keeping them
+separate means an operator comfortable with one is not forced into the other
+to get it.
+
+**Process command-line collection is never one of the fields either flag can
+touch.** It stays local, set only by whoever configures the agent on that
+host — see "The wire format is not the snapshot" for why it is opt-in at all.
+Command lines can carry secrets typed on them, and the consent to send those
+is not the same consent as letting a server nudge a sampling interval.
+
+**A declined directive is echoed back too, with why.** An agent that refuses a
+remote update or a remote configuration change because its start flags do not
+allow it reports that refusal on its next POST. Without it, the server cannot
+tell an agent that will never comply from one that is simply offline — both
+would show as "has not caught up" on the host list, and only one of them needs
+a person to walk over and change a flag.
+
+## Each host's token is its own
+
+Every agent authenticates with its own bearer token, generated when its host
+is enrolled through the (authenticated) web front end, rather than one shared
+secret handed to every agent. A compromised host then costs that host's
+token, not the whole fleet's — the agent process is unprivileged and reads
+only metrics, so the worst a stolen token buys an attacker is the ability to
+post fabricated reports as that one host, not read or affect any other.
+
+The server stores a SHA-256 hash of the token, looked up by index on ingest,
+never the token itself. A token is 256 bits of randomness, generated once and
+shown once; a timing side-channel on the hash lookup gives an attacker
+nothing to walk toward the way it would against a short, human-chosen secret,
+so no comparison beyond an indexed hash lookup is needed. This is the same
+shape as `mfa`'s recovery codes: a deterministic hash and a lookup, not a
+stored secret to protect.
+
+The agent reads its token from a file, `-token-file`, mode 0600, owned by the
+unprivileged service user — never a CLI flag, which `ps` would show to every
+local user on the host.
+
+Revoking a token is a row delete, not a rotation of anything shared. The
+server also keeps `last_used_at` per token, which costs nothing to store and
+gives the host list in stage 5 "this host has not reported in a week" for
+free.
+
+## Signing in reuses mfa, not a new auth stack
+
+Every page on `gaze-server` sits behind a session that needs a password and a
+TOTP code, through `github.com/hammondus/mfa` in the shape `mfademo` already
+demonstrates: Argon2id for the password, `mfa.VerifyTOTP` for the code, a
+session cookie marked `Secure` and `HttpOnly`, and consecutive-failure
+lockout on the account rather than the IP. Writing a second, weaker auth
+stack for this project would be strictly worse than depending on one that
+already has the replay window, the lockout, and the recovery-code path worked
+out and tested.
+
+The threat this defends against is stated plainly: an administrator who
+already has full access to every monitored machine is not who this is for.
+It is for keeping that access from becoming anyone else's — a browser tab
+showing every host's containers, mounts, and running processes is worth more
+to an attacker than most of the individual machines behind it.
+
+TOTP is mandatory, not optional. A password-only login on the one page that
+aggregates every host would undercut the reason a second factor exists
+anywhere else in the fleet.
+
+**The schema supports several admin accounts; the setup flow provisions
+exactly one.** A second administrator is not implausible, and retrofitting a
+users table after rows already reference a single hard-coded admin is the
+expensive direction. Building the table now and shipping a one-account setup
+page costs nothing extra and avoids that migration later. Whether or how to
+add a second admin — an invite flow, an admin-adds-admin page — is undecided
+and does not need deciding until it is needed.
+
+The AES key that seals TOTP secrets (`mfa.Seal`/`mfa.Open`) comes from an
+environment variable set at deploy time, never a file written beside the
+database. `mfademo`'s auto-generated `key.dev` is a convenience for trying the
+demo, explicitly not a pattern to copy — a key stored next to what it
+encrypts protects nothing.
+
+## Host-reported strings are untrusted input
+
+A container name, a process command line, an interface name, and a mount
+label all originate on the machine being monitored, not on `gaze-server`, and
+every one of them is free-form text chosen by whatever created that container
+or process. `report.From` does not sanitise them, and it should not: they are
+data, and what they mean is exactly what the operator asked to see.
+
+They stop being safe the moment stage 5 renders them into an HTML page.
+Anyone who can name a Docker container on a monitored host —
+`<img src=x onerror=...>` is a legal container name — can put a script into
+whatever browser next opens that host's page. That page is signed-in
+territory: a second-factor-protected session with a view over every host in
+the fleet is a worse thing to hand an attacker via stored XSS than most of
+the hosts individually.
+
+Every template that renders a host-reported field goes through
+`html/template`, never string concatenation or `text/template`, and no
+handler writes response bytes directly for anything that includes reported
+data. This is a rule to check on every new page stage 5 adds, not a control
+applied once at the start.
 
 ## Two herds, and they need different fixes
 
@@ -810,6 +941,70 @@ months into two years for under 500 MB. Rolled-up rows keep the minimum and
 maximum beside the mean, or every spike disappears the moment the raw tier
 expires, which is exactly when you would go looking for one.
 
+## The collector is one process; presentation is swappable, not separate
+
+`cmd/gaze-server` ingests, stores, alerts, and — through `ui` — presents, in
+one binary with two optional listeners: HTTP for the web front end, and SSH
+for a TUI. Neither is a separate deployable artifact, and getting a swappable
+front end does not require one to be.
+
+The precedent is already in this document. `report` is its own package
+specifically so that neither the agent nor the server has to import the
+other's internals; the same argument applies one level in. A `query` package
+that reconstructs a per-host view from stored reports is the seam both
+front ends call. That seam is what makes them swappable — a Go interface, not
+a process boundary or a second wire format.
+
+**If the two ever need to be separate processes, SQLite pays for the split
+before it happens.** WAL mode already allows one writer and many readers on
+the same file. Two binaries on one host, one writing and one only reading,
+share the database directly — no query API, no new auth boundary, no new
+wire format to version. That is the escape hatch, kept open by not writing
+anything today that would foreclose it, rather than built in advance for a
+need that has not shown up. Splitting onto *different* hosts is a different
+question and does need a network API; nothing here is designed to make that
+hard later, but nothing is being built for it now either.
+
+**Presentation is a reduced view, not a second `gaze`.** Both the web pages
+and the SSH TUI are built from `report.Report` rows, and `report` is
+deliberately lossy — see "The wire format is not the snapshot". The full
+process table and per-core CPU never reach the collector, so they render as
+`Absent` in both front ends. Neither is a substitute for `ssh` to the host
+itself and running `gaze` there; both are a fleet-level view, which is what
+they are for.
+
+## The SSH TUI is hand-rolled against x/crypto/ssh, not an app framework
+
+`charmbracelet/wish` is the obvious library for "serve a Bubble Tea program
+over SSH" — it is from the same vendor as Bubble Tea and Lip Gloss, and it
+does exactly this. Measured directly (`go list -m all` against a scratch
+module), it pulls in 66 transitive modules, `golang.org/x/crypto` among them
+doing the actual protocol work underneath. That is not a decision the size of
+picking a rendering library; authenticating and terminating SSH sessions is
+close in kind to picking a TLS stack, and it gets the same scrutiny "Docker
+over the socket, not the SDK" already applies to a Docker client: read the
+documented protocol library directly rather than take on an application
+framework built over it.
+
+The server here needs one thing: accept a connection, check the client's
+public key against a configured allow-list, and hand the session to the same
+`ui.Model` a local terminal would get. That is a few hundred lines against
+`golang.org/x/crypto/ssh` — the library `wish` itself depends on for the
+protocol — not the multiplexed-session, multi-app framework `wish` is built
+to support. `x/crypto` is a `golang.org/x` package: not the standard library,
+but maintained by the Go team under the same review standard, and already the
+way Go programs implement SSH without cgo.
+
+**Authentication is public-key only, against an allow-list, and never touches
+`mfa`.** An SSH session authenticated by a private key is a different and, for
+this operator, stronger model than a browser session: it is the same key
+already trusted for root access to every monitored host, not a second
+credential to phish or leak. The web front end needs a password and TOTP
+because a browser session is bearer-token-shaped and reachable by anyone who
+finds the URL; an SSH session is neither. Requiring MFA here as well would add
+a second factor to a login that is already stronger than the thing MFA
+usually protects.
+
 ## Alerting has two evaluation paths, and one of them is a timer
 
 Threshold rules are evaluated when a report is stored, not on a schedule. The
@@ -846,13 +1041,18 @@ development, which is what you want the first fifty times a rule misfires.
 - **No Windows collection**, and no macOS collection. The boundary is drawn and
   nothing is behind it. See "The platform boundary exists before the second
   platform does".
-- **The TUI cannot read from a server.** `gaze` renders a `Snapshot` it
-  collected itself. Rendering one rebuilt from a server would be a small amount
-  of work, since the display already draws from a value rather than reading
-  anything, and `report` should not be shaped in a way that forecloses it.
+- **`gaze`, run locally, cannot read from a server.** Stage 6 renders a
+  reconstructed `Snapshot` from the collector, but only inside an SSH session
+  into it. `gaze -remote` — the local binary dialing a query API directly, so
+  someone can point their own `gaze` at a collector without SSHing in — is
+  still unscheduled. See "The collector is one process; presentation is
+  swappable, not separate" and the "Not scheduled" entry in ROADMAP.md.
 - **Releases are not signed.** `gaze --update` verifies a checksum, which
-  catches corruption but not a compromised release. See "The updater uses no
-  API".
+  catches corruption but not a compromised release, and a remote-triggered
+  update carries the identical exposure since it reuses the same fetch path —
+  see "The updater uses no API" and "The agent is told what to do in the
+  reply". `minisign` is the first thing to reach for if that risk ever
+  outweighs the cost of a signing key.
 - **cmdline is read for every process on every refresh.** That is one extra
   file read per process, a few milliseconds for a few hundred processes. If it
   ever shows up in a profile, sort first and read the command line only for the
