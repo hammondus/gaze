@@ -22,7 +22,7 @@ the collecting and displaying halves were too heavy to put on a small VM.
 
 What is still out of scope: metric exporters, a plugin system, remote command
 execution, and agent-to-agent anything. What was out of scope and no longer is:
-a web interface and a client/server mode. See "One repository, five
+a web interface and a client/server mode. See "One repository, six
 components".
 
 ## One repository, six components
@@ -32,12 +32,15 @@ three binaries.
 
 | Component | What it is | Depends on | External dependencies |
 |---|---|---|---|
-| `metrics` | Collection. The platform boundary lives here. | nothing | none |
-| `report` | The wire types, and the reduction from a snapshot. | `metrics` | none |
-| `ui` | The Bubble Tea model and panels — a view of a `metrics.Snapshot`, not a copy of one. | `metrics` | Bubble Tea, Lip Gloss |
+| `internal/metrics` | Collection. The platform boundary lives here. | nothing | none |
+| `internal/report` | The wire types, and the reduction from a snapshot. | `metrics` | none |
+| `internal/ui` | The Bubble Tea model and panels — a view of a `metrics.Snapshot`, not a copy of one. | `metrics` | Bubble Tea, Lip Gloss |
 | `cmd/gaze` | The TUI, over a local terminal. | `ui` | (via `ui`) |
 | `cmd/gaze-agent` | Collects and posts to a server. | `metrics`, `report`, `update` | none |
 | `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mailer, mfa, `golang.org/x/crypto` (SSH) |
+
+The prose in this file names the components by their short names; the paths
+are the ones in the table.
 
 Two things about that table matter more than the layout.
 
@@ -66,12 +69,28 @@ the sentence about the dependency footprint, which now has to be stated per
 binary. See "Bubble Tea earns its dependencies, and they are most of them".
 
 **`ui` exists so `cmd/gaze-server` can present a terminal view without
-duplicating one.** It was `internal/ui`, folded into `cmd/gaze`, until the
-server needed the same rendering for its SSH front end (see "The collector is
-one process; presentation is swappable, not separate"). Splitting it out is
-the same move stage 1 makes for `metrics`: a package that takes a value and
-draws it has no reason to know who is asking, whether that is a local
-terminal or an SSH session into the collector.
+duplicating one.** The server's SSH front end needs the same rendering the
+local TUI uses (see "The collector is one process; presentation is swappable,
+not separate"), so stage 6 splits the rendering half of `ui` from the
+local-collection wiring around it. A package that takes a value and draws it
+has no reason to know who is asking, whether that is a local terminal or an
+SSH session into the collector.
+
+## Everything stays under internal
+
+All shared packages live under `internal/`, not at the module root. The three
+binaries are in the one module, so `internal/` restricts none of them, and
+nothing outside this repository imports gaze. A package at the root is a
+promise to strangers: once it is importable, someone can import it, and
+`Snapshot` — which "The wire format is not the snapshot" wants free to churn —
+becomes visible breakage in someone else's build.
+
+The asymmetry decides it. If an external consumer ever appears, promoting a
+package out of `internal/` is a rename inside one repository with one
+developer. Retracting a public package is not. Nothing about the extraction
+scenario in "One repository, six components" needs the packages public today;
+it only needs the arrows to keep pointing one way, and they do that from
+inside `internal/` too.
 
 ## Metrics come from /proc and /sys, not from a library
 
@@ -328,7 +347,7 @@ types and constants change, and the whole `AdaptiveColor` background-detection
 story is replaced by a message round-trip (`tea.RequestBackgroundColor` /
 `tea.BackgroundColorMsg`) that has the same first-frame timing sensitivity
 already documented in "The first frame reports no rates". It touches
-`main.go`, most of `internal/ui` (soon `ui`), and every test that constructs a
+`main.go`, most of `internal/ui`, and every test that constructs a
 synthetic key message. Move to v2 once stage 1 lands, as its own commit — not
 bundled with a restructure whose whole point is a byte-identical frame.
 
@@ -684,6 +703,17 @@ enormous, and it is almost never what you go back and read.
 `Report` carries a `Schema` integer. A server must accept an older schema than
 it knows, because an agent updates when it is told to, not when the server does.
 
+The reverse also happens, because the update directive fetches the latest
+release rather than a named version: a server that is itself a release behind
+would push its agents past itself. Two rules cover it. On a newer schema than
+it knows, the server stores the fields it does know and records the mismatch,
+so a fresher agent degrades to a partial report rather than looking like a
+dead host — silently rejecting it would be indistinguishable from an outage on
+the host list. And the server sends the update directive only while its own
+version matches the latest release, checked through the same
+`/releases/latest` redirect the updater already reads, so it never creates the
+situation deliberately.
+
 ## Sample often, report rarely
 
 The agent collects on a short interval and posts on a long one, sending the
@@ -699,6 +729,36 @@ times a collection, which is about 1.1 ms of CPU each, and nothing in bandwidth.
 The same reasoning applies to the roll-up tiers in the database, and for the same
 reason those keep minimum and maximum beside the mean. See "SQLite, and what six
 months costs".
+
+## Reports carry the agent's clock, and the server keeps its own
+
+A `Report` states the span of sample times it aggregates, read from the
+agent's clock. That is what makes the ring buffer worth having: a backlog
+flushed after an outage lands at the time it describes, not the time it
+arrived. Stamping reports on arrival would file an hour of buffered history
+into one minute and leave the outage looking like a flat line followed by a
+spike.
+
+The server stores its own receive time beside the sample time. The two
+disagree exactly when something interesting happened — an outage, a backlog,
+or a broken clock — so neither can substitute for the other:
+
+- **Charts and roll-ups read sample time.** They describe the host.
+- **Staleness reads receive time.** It exists to catch a host that has gone
+  silent, and a host whose clock is wrong must not be exempt from it.
+
+Two consequences for ingest and roll-up:
+
+- **A sample time ahead of the server's clock is clamped to receive time.**
+  A future-dated row sits in a roll-up window that has not happened yet and
+  corrupts it silently. Clamping keeps the report and loses only the claim
+  the agent's clock was not entitled to make. Sample times in the past are
+  accepted as far back as the raw retention window, which covers the agent's
+  one-hour buffer many times over.
+- **The roll-up only processes windows older than two hours** — twice the
+  buffer horizon — so a backlog cannot arrive after its window was already
+  rolled up short. The raw tier is kept seven days, so the delay costs
+  nothing.
 
 ## Absent is not zero
 
@@ -762,6 +822,11 @@ through restarts and proxies, and there is nothing to push that cannot wait
 until the next report. It also means an agent behind NAT needs no inbound path,
 which is most of them.
 
+Because every directive rides on the reply, the transport is the trust
+boundary: the agent refuses a plain `http://` server URL unless the host is
+loopback. Everything below about what a spoofed server can and cannot do
+assumes TLS is doing its job.
+
 **The directive carries a generation number and the agent echoes it back.** The
 server learns whether a change actually took effect, which is the difference
 between configuration and hope when an agent has been offline for an hour or
@@ -782,7 +847,9 @@ the directive grows: no future field may let it name a version or a source. A
 design rather than a value slotted into this one. Requiring a flag makes
 enabling remote update a deliberate act, recorded in the unit file. Rollouts
 are staggered for the separate reason that ten agents updating at once all
-fetch from GitHub at once.
+fetch from GitHub at once. The server also withholds the directive entirely
+while it is itself behind the latest release, so it never pushes its agents
+past its own schema — see "The wire format is not the snapshot".
 
 **Remote configuration changes are a second, independent flag, off by default
 the same way.** An agent that accepts remote interval and collection-target
@@ -806,8 +873,12 @@ a person to walk over and change a flag.
 ## Each host's token is its own
 
 Every agent authenticates with its own bearer token, generated when its host
-is enrolled through the (authenticated) web front end, rather than one shared
-secret handed to every agent. A compromised host then costs that host's
+is enrolled — through `gaze-server enroll <hostname>` at the command line
+from stage 4, or the authenticated web page that wraps the same path from
+stage 5 — rather than one shared secret handed to every agent. The CLI form
+exists first because ingest needs testable tokens a stage before the web
+front end exists, and it stays because a headless setup should not need a
+browser. A compromised host then costs that host's
 token, not the whole fleet's — the agent process is unprivileged and reads
 only metrics, so the worst a stolen token buys an attacker is the ability to
 post fabricated reports as that one host, not read or affect any other.
@@ -820,6 +891,13 @@ so no comparison beyond an indexed hash lookup is needed. This is the same
 shape as `mfa`'s recovery codes: a deterministic hash and a lookup, not a
 stored secret to protect.
 
+The hash is deliberately unsalted, and that is a decision rather than an
+omission. A salt makes a guessable secret expensive to attack in bulk, which
+256 random bits are not, and a salted hash cannot be found by index — every
+lookup would become a scan that hashes the presented token against each row's
+salt in turn. Unsalted-and-indexed is the standard shape for high-entropy
+API tokens.
+
 The agent reads its token from a file, `-token-file`, mode 0600, owned by the
 unprivileged service user — never a CLI flag, which `ps` would show to every
 local user on the host.
@@ -828,6 +906,23 @@ Revoking a token is a row delete, not a rotation of anything shared. The
 server also keeps `last_used_at` per token, which costs nothing to store and
 gives the host list in stage 5 "this host has not reported in a week" for
 free.
+
+## Unprivileged stops at the Docker socket
+
+Reading `/proc` and `/sys` needs no privilege, so the agent's service user
+can be a plain account with no shell. Container stats break that story. They
+need the runtime socket, which on most hosts means membership of the
+`docker` group — and the docker group is root in practice, because anyone in
+it can start a container with the host filesystem mounted inside.
+
+So with container collection on, "unprivileged" describes the account, not
+the blast radius: a compromised agent in the docker group owns the host. The
+systemd unit documentation states this plainly instead of implying the word
+covers it. The configurations where the word is honest are `-containers=false`,
+which never touches a socket, and rootless Podman, whose socket grants only
+that user's containers. The earlier claim in "Each host's token is its own" —
+that a stolen token buys only fabricated reports — is about the token and
+remains true; this is about the agent process itself.
 
 ## Signing in reuses mfa, not a new auth stack
 
@@ -994,6 +1089,12 @@ protocol — not the multiplexed-session, multi-app framework `wish` is built
 to support. `x/crypto` is a `golang.org/x` package: not the standard library,
 but maintained by the Go team under the same review standard, and already the
 way Go programs implement SSH without cgo.
+
+Hand-rolling means owning the parts `wish` would have hidden, and the stage 6
+checklist names them: a host key generated on first run and persisted beside
+the database, because a server that changes identity on restart trains every
+operator to accept host-key warnings; and `pty-req` and `window-change`
+handling, so resize behaves the way a local terminal does.
 
 **Authentication is public-key only, against an allow-list, and never touches
 `mfa`.** An SSH session authenticated by a private key is a different and, for

@@ -17,9 +17,10 @@ useful on your own hosts before any of the hard parts.
 ## Stage 1 — Restructure
 
 Make room for the other binaries. No behaviour change: `gaze` looks and acts
-exactly as it does now, and the existing tests pass untouched.
+exactly as it does now, and the existing tests pass untouched. Shared packages
+stay under `internal/` — see "Everything stays under internal" in
+DESIGN-DECISIONS.
 
-- [ ] Promote `internal/metrics` to `metrics`, a public package.
 - [ ] Move `main.go` to `cmd/gaze/`.
 - [ ] Split the collector into `collector_linux.go` and
       `collector_unsupported.go` under build constraints, with only Linux
@@ -35,11 +36,15 @@ commit, and `go vet ./...` passes for `linux/arm64`.
 
 The type the agent sends and the server stores. No network code yet.
 
-- [ ] `report` package: `Report`, `Directive`, and a `Schema` constant.
+- [ ] `internal/report` package: `Report`, `Directive`, and a `Schema`
+      constant.
 - [ ] `report.From(metrics.Snapshot, Options) Report`, reducing to scalars,
       per-interface and per-device rates, mounts, process counts, and the top
       few processes.
 - [ ] Aggregation across samples: minimum, maximum, and mean per field.
+- [ ] `Report` carries the span of sample times it aggregates, from the
+      agent's clock. See "Reports carry the agent's clock" in
+      DESIGN-DECISIONS.
 - [ ] Process command lines excluded by default, behind an opt-in.
 - [ ] Round-trip tests, and a golden JSON fixture to catch accidental schema
       changes.
@@ -52,11 +57,15 @@ the golden fixture fails on any field rename.
 - [ ] `cmd/gaze-agent`: collect on a short interval, post on a long one.
 - [ ] `POST /api/v1/reports`, JSON, gzipped, bearer token read from a token
       file (mode 0600), never a CLI flag.
+- [ ] Refuse a plain `http://` server URL unless the host is loopback. The
+      directive channel assumes TLS.
 - [ ] Bounded ring buffer of unsent reports, about sixty.
 - [ ] Full-jitter backoff, capped near fifteen minutes; honour `Retry-After`.
 - [ ] Stable per-host reporting offset derived from the host ID.
 - [ ] Apply directives from the reply; echo the config generation.
-- [ ] systemd unit, and a documented unprivileged user.
+- [ ] systemd unit, and a documented unprivileged user. The documentation
+      states what Docker socket access does to that word — see "Unprivileged
+      stops at the Docker socket" in DESIGN-DECISIONS.
 - [ ] A throwaway server that logs what it receives, to prove the path.
 
 **Done when** an agent survives the throwaway server being stopped for ten
@@ -66,11 +75,21 @@ minutes and the gap is filled on its return.
 
 - [ ] `cmd/gaze-server`, SQLite through `modernc.org/sqlite`, WAL, one writer.
 - [ ] Schema and forward-only migrations: hosts, admin accounts (see stage 5),
-      per-host bearer tokens stored as salted hashes with `last_used_at`.
-- [ ] Ingest endpoint: token hash lookup, body size cap, schema-version
-      tolerance, `429` with `Retry-After` under load.
+      per-host bearer tokens stored as unsalted SHA-256 hashes, looked up by
+      index, with `last_used_at`. See "Each host's token is its own" in
+      DESIGN-DECISIONS for why unsalted is correct here.
+- [ ] `gaze-server enroll <hostname>`: generate a token, print it once, store
+      only its hash. The stage-5 web flow wraps this path; it also serves
+      headless setups on its own.
+- [ ] Ingest endpoint: token hash lookup, a size cap enforced on the
+      decompressed body, schema tolerance in both directions (see "The wire
+      format is not the snapshot"), `429` with `Retry-After` under load.
+- [ ] Store the agent's sample time and the server's receive time per report.
+      Charts and roll-ups read sample time; staleness reads receive time.
 - [ ] Retention and roll-up: raw 60s for 7 days, 5-minute for 90 days, hourly
-      for 2 years, keeping minimum and maximum beside the mean.
+      for 2 years, keeping minimum and maximum beside the mean. Roll up only
+      windows older than two hours, so a backlog flushed after an outage is
+      never rolled up short.
 - [ ] A `query` package that reconstructs a per-host view from stored
       reports. The web front end (stage 5) and the SSH TUI (stage 6) both
       call it; neither writes SQL of its own.
@@ -85,12 +104,14 @@ database size matches the estimate in DESIGN-DECISIONS to within a factor of two
 
 - [ ] Admin login: password (Argon2id) plus mandatory TOTP through
       `github.com/hammondus/mfa`, following `mfademo`'s session and lockout
-      pattern. Schema supports several admin accounts; the setup flow only
+      pattern. Check whether `mfa` resolves before adding it; if it does not,
+      use `go.work`, never a `replace` — the same rule stage 7 applies to
+      `mailer`. Schema supports several admin accounts; the setup flow only
       provisions one for now.
 - [ ] Session cookies `Secure` and `HttpOnly`; no page renders host data to a
       request without a valid session.
-- [ ] Host enrolment (authenticated): generate a per-host token, display it
-      once, store only its hash.
+- [ ] Host enrolment (authenticated): a page over the stage-4 `enroll` path —
+      generate a per-host token, display it once, store only its hash.
 - [ ] Host list with current state and last-seen time.
 - [ ] Host detail: the same measurements the TUI shows, over time.
 - [ ] Graphs, vanilla front end, no framework.
@@ -112,9 +133,9 @@ A second, optional way to look at the fleet, alongside the browser: `ssh` to
 the collector and land in the same Bubble Tea interface `gaze` already
 renders locally, sourced from stored reports instead of `/proc`.
 
-- [ ] Promote the rendering half of `internal/ui` to an importable package,
-      the same way stage 1 promotes `metrics`. `cmd/gaze-server` needs the
-      `Model`, not the local-collection wiring around it.
+- [ ] Split the rendering half of `internal/ui` from the local-collection
+      wiring, staying under `internal/`. `cmd/gaze-server` needs the `Model`,
+      not the collection loop around it.
 - [ ] Reconstruct a `metrics.Snapshot`-shaped view per host through the
       stage-4 `query` package. Fields a report never carried — the full
       process table, per-core CPU — render as `Absent`, not zero: this is the
@@ -122,6 +143,11 @@ renders locally, sourced from stored reports instead of `/proc`.
 - [ ] SSH server hand-rolled against `golang.org/x/crypto/ssh`, not an app
       framework: one session type, pubkey auth, a rendered view. See
       DESIGN-DECISIONS for why this is not `charmbracelet/wish`.
+- [ ] Generate a host key on first run and persist it beside the database. A
+      restart must not change the server's SSH identity.
+- [ ] Handle `pty-req` and `window-change` requests, so resize works the way
+      it does in a local terminal. These are the parts `wish` would have
+      hidden; the checklist owns them instead.
 - [ ] Auth is public-key only, checked against a configured allow-list — no
       password, no MFA, no session cookie. Reuses the trust an operator
       already has SSHing into these hosts as root, and never touches `mfa`.
@@ -140,6 +166,8 @@ refused before a shell — or a TUI — is ever reached.
 - [ ] Per-host state machine: OK, PENDING, FIRING, OK. Mail on transitions only.
 - [ ] Threshold rules evaluated on ingest.
 - [ ] Staleness sweep on a timer, for hosts that have stopped reporting.
+      Evaluated on receive time, not sample time, so a host with a broken
+      clock can still go stale.
 - [ ] Re-notify suppression, so a long outage is not a mailbox.
 - [ ] Wire `github.com/hammondus/mailer`; check whether it resolves before
       adding it, and use `go.work` rather than a `replace` if it does not.
@@ -159,6 +187,9 @@ one message.
       directive is a bare trigger: no version, no URL. An agent told to update
       runs the same fetch-latest-and-verify path `gaze --update` already runs
       by hand.
+- [ ] The server sends the update directive only when its own version matches
+      the latest release, so agents never end up running a newer schema than
+      the server. See "The wire format is not the snapshot".
 - [ ] Staggered rollout, so agents do not all fetch from GitHub at once.
 - [ ] Show each agent's version and config generation, and whether it has
       caught up with what it was told — and, distinct from "not caught up
