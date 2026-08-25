@@ -279,4 +279,21 @@ CREATE TABLE admin_sessions (
 	expires_at INTEGER NOT NULL,
 	authed_at  INTEGER
 ) WITHOUT ROWID;
+`, `
+-- Stage 7: alert state, one row per rule per host per instance (a mount
+-- path, or '' for host-level rules). The rules themselves are code, in
+-- internal/alert; persisting only the state means a restart neither
+-- re-fires every open alert nor forgets one. since is the sample clock
+-- (when the breach began); changed_at and mailed_at are the server clock,
+-- and mailed_at is what re-notify suppression reads.
+CREATE TABLE alert_state (
+	host_id    INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+	rule       TEXT NOT NULL,
+	instance   TEXT NOT NULL DEFAULT '',
+	state      INTEGER NOT NULL,
+	since      INTEGER NOT NULL,
+	changed_at INTEGER NOT NULL,
+	mailed_at  INTEGER,
+	PRIMARY KEY (host_id, rule, instance)
+) WITHOUT ROWID;
 `}

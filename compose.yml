@@ -24,6 +24,15 @@ services:
       #
       #   echo "GAZE_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
       - GAZE_KEY
+      # Alert mail. Unset, alerts compose into the log instead of sending,
+      # which is the right place for them until the rules have been watched
+      # for a while. GAZE_ALERT_TO is comma-separated recipients.
+      - GAZE_SMTP_HOST
+      - GAZE_SMTP_PORT
+      - GAZE_SMTP_USERNAME
+      - GAZE_SMTP_PASSWORD
+      - GAZE_SMTP_FROM
+      - GAZE_ALERT_TO
     volumes:
       # A named volume rather than a bind mount: the container runs as its
       # own unprivileged user, and the volume inherits that ownership.

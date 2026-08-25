@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hammondus/gaze/internal/alert"
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
 )
@@ -30,11 +31,12 @@ const (
 // ingest is the one authenticated endpoint an agent talks to.
 type ingest struct {
 	store *store.Store
+	alert *alert.Alerter
 	slots chan struct{}
 }
 
-func newIngest(s *store.Store) *ingest {
-	return &ingest{store: s, slots: make(chan struct{}, ingestSlots)}
+func newIngest(s *store.Store, a *alert.Alerter) *ingest {
+	return &ingest{store: s, alert: a, slots: make(chan struct{}, ingestSlots)}
 }
 
 func (h *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,24 @@ func (h *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if stored < len(batch) {
 		log.Printf("ingest host %d: stored %d of %d reports (rest outside the accepted time range)", hostID, stored, len(batch))
 	}
+
+	// Threshold rules run here, while the report is already in memory. Only
+	// the newest report of a batch is evaluated: the rest is backlog, and
+	// the evaluator ignores anything past its live window anyway. A failure
+	// must not fail the ingest — the report is stored, which is the part
+	// the agent needs acknowledged.
+	if stored > 0 {
+		newest := &batch[0]
+		for i := range batch {
+			if batch[i].End.After(newest.End) {
+				newest = &batch[i]
+			}
+		}
+		if err := h.alert.Evaluate(r.Context(), hostID, newest); err != nil {
+			log.Printf("alert host %d: %v", hostID, err)
+		}
+	}
+
 	// No directive machinery yet: stage 8 grows this reply.
 	w.WriteHeader(http.StatusNoContent)
 }

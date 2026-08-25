@@ -222,6 +222,27 @@ Both print the host's bearer token exactly once. The database stores the
 token's SHA-256, never the token. Enrolling the same host again mints a
 second token, which is how rotation works.
 
+### Alerting
+
+The server mails on state transitions, never on conditions: CPU, memory,
+swap, or a filesystem above its threshold for fifteen minutes fires once,
+and fires again only after recovery. A host that stops reporting for five
+minutes is the alert that matters most, and it is swept for every minute.
+At most one message per rule per host per hour, so a flapping metric or a
+week-long outage is one email, not a mailbox.
+
+Configure the mail path in the environment, beside `GAZE_KEY`:
+
+```
+GAZE_SMTP_HOST, GAZE_SMTP_PORT, GAZE_SMTP_USERNAME, GAZE_SMTP_PASSWORD,
+GAZE_SMTP_FROM   # the SMTP account alerts send through
+GAZE_ALERT_TO    # recipients, comma-separated
+```
+
+Until those are set, alerts compose into the server log instead of a
+mailbox, so the rules can be watched misfiring before they can page
+anyone.
+
 ### The SSH view
 
 The server can also serve the gaze TUI itself over SSH, drawn from stored
@@ -324,6 +345,7 @@ still planned, see [ROADMAP.md](ROADMAP.md).
 | `internal/report` | The wire contract between agent and server. Standard library only. |
 | `internal/store` | The server's schema, migrations, and every write |
 | `internal/query` | Read-only reconstruction of per-host views |
+| `internal/alert` | Threshold rules, staleness, and mail on transitions |
 | `internal/ui` | Bubble Tea model, panels, and formatting |
 | `internal/update` | `--update` and `--check-update` |
 

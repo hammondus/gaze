@@ -9,15 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hammondus/gaze/internal/alert"
 	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/report"
 )
 
-// staleAfter is how long after its last report a host is drawn as stale.
-// Five minutes is several missed reports at the default interval, so a slow
-// network or one lost POST does not flap the fleet list. Staleness reads
-// receive time, so a host with a broken clock still goes stale.
-const staleAfter = 5 * time.Minute
+// staleAfter is how long after its last report a host is drawn as stale:
+// several missed reports at the default interval, so a slow network or one
+// lost POST does not flap the list. It is the alert package's constant, so
+// the pages, the SSH list, and the staleness mail can never disagree about
+// what "stale" means. Staleness reads receive time, so a host with a
+// broken clock still goes stale.
+const staleAfter = alert.StaleAfter
 
 // hostState is the three-way fact the fleet list exists to show. The done-
 // when for this stage: never reported, reporting, and stopped must each be

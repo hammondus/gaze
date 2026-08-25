@@ -61,8 +61,12 @@ snapshots to what goes over the wire.
   Until `hammondus/mfa` is published, building needs the git-ignored
   `go.work` (see the note in go.mod); the Docker build does not work yet.
 - `internal/store` — the server's schema, forward-only migrations, and every
-  write: enrolment, ingest, roll-up, retention. SQLite through
+  write: enrolment, ingest, roll-up, retention, alert state. SQLite through
   `modernc.org/sqlite`, the server's one storage dependency.
+- `internal/alert` — threshold rules (code, not rows), the per-host state
+  machines, staleness, re-notify suppression, and mail through
+  `github.com/hammondus/mailer`. Thresholds evaluate on ingest; staleness
+  sweeps on a timer. Tests use `mailer.MemorySender`; no SMTP anywhere.
 - `internal/query` — read-only reconstruction of per-host views for
   presentation. The stage-5 web front end and stage-6 SSH TUI call it;
   neither writes SQL.

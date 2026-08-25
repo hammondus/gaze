@@ -28,8 +28,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hammondus/gaze/internal/alert"
 	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/store"
+	"github.com/hammondus/mailer"
 	"github.com/hammondus/mfa"
 )
 
@@ -93,6 +95,42 @@ func main() {
 		}
 	}()
 
+	// Mail goes through the mailer once GAZE_SMTP_* and GAZE_ALERT_TO are
+	// set; until then NewLog composes and logs, which is what you want the
+	// first fifty times a rule misfires.
+	smtp := mailer.ConfigFromEnv("GAZE_SMTP_")
+	to := alert.Recipients(os.Getenv("GAZE_ALERT_TO"))
+	var sender mailer.Sender
+	if smtp.Configured() && len(to) > 0 {
+		sender = mailer.NewSMTP(smtp)
+	} else {
+		log.Printf("alerting: GAZE_SMTP_HOST, GAZE_SMTP_FROM, or GAZE_ALERT_TO not set; alerts go to this log, not to a mailbox")
+		sender = mailer.NewLog(nil)
+		if len(to) == 0 {
+			to = []string{"operator@localhost"}
+		}
+	}
+	alerter := alert.New(s, alert.Async(sender), to)
+
+	// The staleness sweep is the alert that fires when a machine dies, so
+	// it gets its own timer rather than riding the roll-up's. Every minute
+	// against a five-minute threshold keeps detection prompt without the
+	// tick itself costing anything.
+	go func() {
+		tick := time.NewTicker(time.Minute)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if err := alerter.SweepStaleness(ctx); err != nil {
+					log.Printf("alert sweep: %v", err)
+				}
+			}
+		}
+	}()
+
 	web, err := newWebServer(s, key, !*insecureCookies)
 	if err != nil {
 		fatal("%v", err)
@@ -119,7 +157,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/v1/reports", newIngest(s))
+	mux.Handle("POST /api/v1/reports", newIngest(s, alerter))
 	mux.Handle("/", web.handler())
 
 	srv := &http.Server{

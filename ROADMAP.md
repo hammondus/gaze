@@ -10,10 +10,10 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 6 done, except that stage 5's `hammondus/mfa`
+**Status:** stages 1 to 7 done, except that stage 5's `hammondus/mfa`
 dependency still resolves through a local `go.work`: publish the module,
 pin it in go.mod, and delete go.work before the server image can build.
-Stage 7 not started.
+Stage 8 not started.
 
 ---
 
@@ -181,16 +181,25 @@ refused before a shell — or a TUI — is ever reached.
 
 ## Stage 7 — Alerting
 
-- [ ] Rule model: metric, comparison, threshold, duration.
-- [ ] Per-host state machine: OK, PENDING, FIRING, OK. Mail on transitions only.
-- [ ] Threshold rules evaluated on ingest.
-- [ ] Staleness sweep on a timer, for hosts that have stopped reporting.
+- [x] Rule model: metric, comparison, threshold, duration. The rules are
+      code in `internal/alert`, not rows — see "Alerting has two evaluation
+      paths" in DESIGN-DECISIONS for why no rules table exists.
+- [x] Per-host state machine: OK, PENDING, FIRING, OK. Mail on transitions
+      only; state persists in `alert_state`, so a restart neither re-fires
+      every open alert nor forgets one.
+- [x] Threshold rules evaluated on ingest, on the newest report of a batch;
+      backlog older than ten minutes describes the past and is skipped.
+- [x] Staleness sweep on a timer, for hosts that have stopped reporting.
       Evaluated on receive time, not sample time, so a host with a broken
-      clock can still go stale.
-- [ ] Re-notify suppression, so a long outage is not a mailbox.
-- [ ] Wire `github.com/hammondus/mailer`; check whether it resolves before
-      adding it, and use `go.work` rather than a `replace` if it does not.
-- [ ] Tests against `MemorySender`, with no SMTP anywhere.
+      clock can still go stale. A never-reported host is setup in
+      progress, not an outage, and stays silent.
+- [x] Re-notify suppression, so a long outage is not a mailbox: at most
+      one message per rule per host per hour, transitions included.
+- [x] Wire `github.com/hammondus/mailer` — it resolves, so it is pinned in
+      go.mod like any dependency. `GAZE_SMTP_*` and `GAZE_ALERT_TO`
+      configure it; unset, alerts compose into the log through `NewLog`.
+- [x] Tests against `MemorySender`, with no SMTP anywhere.
+      `TestFlappingHourSendsOneMessage` is the done-when, verbatim.
 
 **Done when** a rule that flaps either side of its threshold for an hour sends
 one message.

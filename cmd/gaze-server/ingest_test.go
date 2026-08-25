@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hammondus/gaze/internal/alert"
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
+	"github.com/hammondus/mailer"
 )
 
 func testServer(t *testing.T) (*store.Store, *httptest.Server, string) {
@@ -27,7 +29,7 @@ func testServer(t *testing.T) (*store.Store, *httptest.Server, string) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/v1/reports", newIngest(s))
+	mux.Handle("POST /api/v1/reports", newIngest(s, testAlerter(s)))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return s, srv, token
@@ -119,7 +121,7 @@ func TestIngestBusy(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	h := newIngest(s)
+	h := newIngest(s, testAlerter(s))
 	for range ingestSlots {
 		h.slots <- struct{}{}
 	}
@@ -131,4 +133,10 @@ func TestIngestBusy(t *testing.T) {
 	if rec.Header().Get("Retry-After") == "" {
 		t.Error("429 without Retry-After leaves the agent guessing")
 	}
+}
+
+// testAlerter is a quiet alerter for tests whose subject is ingest, not
+// alerting; alert behaviour has its own suite in internal/alert.
+func testAlerter(s *store.Store) *alert.Alerter {
+	return alert.New(s, &mailer.MemorySender{}, []string{"ops@example.com"})
 }

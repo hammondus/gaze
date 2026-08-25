@@ -37,7 +37,7 @@ three binaries.
 | `internal/ui` | The Bubble Tea model and panels — a view of a `metrics.Snapshot`, not a copy of one. | `metrics` | Bubble Tea, Lip Gloss |
 | `cmd/gaze` | The TUI, over a local terminal. | `ui` | (via `ui`) |
 | `cmd/gaze-agent` | Collects and posts to a server. | `metrics`, `report`, `update` | none |
-| `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mfa, `golang.org/x/crypto`, `rsc.io/qr`; mailer at stage 7 |
+| `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mfa, mailer, `golang.org/x/crypto`, `rsc.io/qr` |
 
 The prose in this file names the components by their short names; the paths
 are the ones in the table.
@@ -324,12 +324,12 @@ running ones off the screen.
 Bubble Tea and Lip Gloss bring about twenty modules between them.
 
 State the footprint per binary, not per repository. `gaze-agent` has no
-external dependencies at all. `gaze-server` carries SQLite, `mfa`,
-`golang.org/x/crypto` (Argon2 and SSH), `rsc.io/qr`, and — through `ui` —
-Bubble Tea and Lip Gloss; the mailer arrives at stage 7. `gaze` carries
-only Bubble Tea and Lip Gloss, same as before `ui` was split out; it just
-imports them one package away rather than directly. `make release` is
-where the footprint is worth checking, not `go.sum`.
+external dependencies at all. `gaze-server` carries SQLite, `mfa`, the
+mailer, `golang.org/x/crypto` (Argon2 and SSH), `rsc.io/qr`, and — through
+`ui` — Bubble Tea and Lip Gloss. `gaze` carries only Bubble Tea and Lip
+Gloss, same as before `ui` was split out; it just imports them one package
+away rather than directly. `make release` is where the footprint is worth
+checking, not `go.sum`.
 
 The alternative is an alt-screen, raw mode, and ANSI by hand, in under a
 hundred lines. What Bubble Tea supplies for the extra weight is key decoding,
@@ -1367,6 +1367,42 @@ minutes" is a different and far more useful statement than "above 90 percent".
 Mail goes through `github.com/hammondus/mailer`. `MemorySender` lets the whole
 alerting path be tested with no SMTP anywhere, and `NewLog` composes and logs in
 development, which is what you want the first fifty times a rule misfires.
+
+Stage 7 settled the details, recorded rather than rediscovered:
+
+- **The rules are code, not rows.** Nothing in the roadmap ever gives rules
+  an editing surface, and a table without an editor is a configuration file
+  with extra steps. What persists is each rule's standing per host — the
+  `alert_state` row — so a restart neither re-fires every open alert nor
+  forgets one. If a rules page is ever wanted, the model moves to the
+  database then, with the editor that justifies it.
+- **Rules judge the report's mean, not its envelope.** The min–max exists so
+  graphs keep spikes visible; the fifteen-minute duration exists to ignore
+  exactly those spikes. Alerting on the max would fire on the noise the
+  duration was added to filter out.
+- **Every threshold is a percentage of a capacity.** CPU, memory, swap, and
+  mount usage; swap on a machine with none is skipped, because "no swap" is
+  not "full swap" — the same absent-is-not-zero rule as everywhere else.
+- **Only live reports are evaluated.** A backlog flushed after an outage
+  describes the past; paging about history that already resolved itself
+  helps no one, and the staleness alert already covered the outage itself.
+  Ten minutes is the window, and breach durations are measured on sample
+  time within it.
+- **Suppression is one message per rule per host per hour, transitions
+  included.** That single mechanism is what makes an hour of flapping one
+  message and a week-long outage one message. A recovery inside the window
+  is recorded but not mailed — quiet errs toward quiet.
+- **A vanished instance is dropped, not recovered.** An unmounted
+  filesystem's state row is deleted without a recovery message: "resolved"
+  and "gone" are different facts, and mailing one as the other says a disk
+  freed space it did not.
+- **Sending is asynchronous, behind the `Sender` interface.** Evaluation
+  runs inside an agent's POST, and a wedged SMTP server must slow mail,
+  not monitoring. The trade is stated plainly: a background delivery that
+  fails is logged but still counts as sent for suppression.
+- **A never-reported host is not stale.** Enrolment without an agent is
+  setup in progress; the staleness alert starts existing the first time
+  the server hears from the host at all.
 
 ## Known gaps
 
