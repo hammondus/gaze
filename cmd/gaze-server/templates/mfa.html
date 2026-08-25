@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Second factor</h1>
+<p>Enter the six-digit code from the authenticator app.</p>
+<form method="post" action="/login/mfa" class="stack">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Code <input name="code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" autofocus required></label>
+  <button>Sign in</button>
+</form>
+{{end}}

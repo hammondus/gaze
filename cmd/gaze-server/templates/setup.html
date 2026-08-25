@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>Set up gaze</h1>
+<p>This server has no admin account yet. The setup code is in the server
+log; with it, create the account. The next step enrols an authenticator
+app, which every sign-in requires.</p>
+<form method="post" action="/setup" class="stack">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Setup code <input name="setup_code" autofocus required></label>
+  <label>Username <input name="username" autocomplete="username" required></label>
+  <label>Password <input type="password" name="password" autocomplete="new-password" minlength="12" required></label>
+  <button>Continue</button>
+</form>
+{{end}}

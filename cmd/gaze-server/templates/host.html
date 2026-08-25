@@ -1,0 +1,118 @@
+{{define "graph"}}
+<figure class="graph">
+  <figcaption>{{.Title}}</figcaption>
+  {{/* The literal coordinates match the gWidth/gHeight/gPad* constants in
+       graph.go; change them together. */}}
+  <svg viewBox="0 0 600 150" role="img">
+    {{if .Note}}
+    <text class="note" x="300" y="80" text-anchor="middle">{{.Note}}</text>
+    {{else}}
+    {{range .YTicks}}<line class="grid" x1="52" x2="592" y1="{{.Y}}" y2="{{.Y}}"></line>
+    <text class="label" x="48" y="{{.Y}}" text-anchor="end" dominant-baseline="middle">{{.Label}}</text>
+    {{end}}
+    {{range .XTicks}}<text class="label" x="{{.X}}" y="147" text-anchor="middle">{{.Label}}</text>
+    {{end}}
+    {{if .Band}}<path class="band" d="{{.Band}}"></path>{{end}}
+    {{range .Lines}}<path class="line {{.Class}}" d="{{.D}}"></path>{{end}}
+    {{range .Dots}}<circle class="dot {{.Class}}" cx="{{.X}}" cy="{{.Y}}" r="2"></circle>{{end}}
+    {{end}}
+  </svg>
+</figure>
+{{end}}
+
+{{define "content"}}
+{{with .Data}}
+<h1>{{.Name}} <span class="chip {{.StateClass}}">{{.State}}</span></h1>
+<p class="meta">
+  {{if not .LastSeen.IsZero}}last seen {{ago .LastSeen}}{{else}}has never reported{{end}}
+  {{if .Kernel}} · kernel {{.Kernel}}{{end}}
+  {{if .CPUs}} · {{.CPUs}} cpus{{end}}
+  {{with .Latest}} · up {{uptime .Host.UptimeSeconds}}{{end}}
+  {{if .AgentVersion}} · agent {{.AgentVersion}}{{end}}
+</p>
+
+<nav class="ranges">
+  {{$id := .ID}}
+  {{range .Ranges}}
+  {{if .Active}}<span class="active">{{.Key}}</span>{{else}}<a href="/hosts/{{$id}}?range={{.Key}}">{{.Key}}</a>{{end}}
+  {{end}}
+</nav>
+
+<div class="graphs">
+  {{range .Graphs}}{{template "graph" .}}{{end}}
+  {{range .Nets}}{{template "graph" .}}{{end}}
+  {{range .Disks}}{{template "graph" .}}{{end}}
+</div>
+
+{{with .Latest}}
+{{if .Mounts}}
+<h2>Filesystems</h2>
+<table>
+  <thead><tr><th>mount</th><th>device</th><th>type</th><th class="num">used</th><th class="num">of</th><th class="bar-col"></th><th class="num">%</th></tr></thead>
+  <tbody>
+  {{range .Mounts}}
+  <tr>
+    <td>{{.Path}}</td>
+    <td class="dim">{{.Device}}</td>
+    <td class="dim">{{.FSType}}</td>
+    <td class="num">{{bytes .Used}}</td>
+    <td class="num">{{bytes .Total}}</td>
+    <td class="bar-col"><svg class="bar" viewBox="0 0 100 6" preserveAspectRatio="none"><rect class="bar-bg" width="100" height="6"></rect><rect class="bar-fill" width="{{printf "%.0f" .Percent}}" height="6"></rect></svg></td>
+    <td class="num">{{percent .Percent}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+<h2>Containers</h2>
+{{if .ContainersDisabled}}
+<p class="dim">Container collection is switched off on this host.</p>
+{{else if not .ContainerRuntime}}
+<p class="dim">No container runtime was found on this host.</p>
+{{else if not .Containers}}
+<p class="dim">No containers ({{.ContainerRuntime}}).</p>
+{{else}}
+<table>
+  <thead><tr><th>name</th><th>image</th><th>state</th><th class="num">cpu</th><th class="num">memory</th></tr></thead>
+  <tbody>
+  {{range .Containers}}
+  <tr>
+    <td>{{.Name}}</td>
+    <td class="dim">{{.Image}}</td>
+    <td>{{.State}}</td>
+    <td class="num">{{percent .CPU.Mean}}</td>
+    <td class="num">{{if .Mem}}{{bytes .Mem}}{{else}}—{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{if .Top}}
+<h2>Busiest processes <span class="dim">(latest report)</span></h2>
+<table>
+  <thead><tr><th class="num">pid</th><th>user</th><th>name</th><th class="num">cpu</th><th class="num">peak</th><th class="num">rss</th><th class="num">swap</th><th>command</th></tr></thead>
+  <tbody>
+  {{$absent := .Absent}}
+  {{range .Top}}
+  <tr>
+    <td class="num">{{.PID}}</td>
+    <td>{{.User}}</td>
+    <td>{{.Name}}</td>
+    <td class="num">{{percent .CPU.Mean}}</td>
+    <td class="num">{{percent .CPU.Max}}</td>
+    <td class="num">{{bytes .RSS}}</td>
+    <td class="num">{{if absent $absent "process.swap"}}—{{else}}{{bytes .Swap}}{{end}}</td>
+    <td class="dim cmd">{{if .Cmdline}}{{.Cmdline}}{{else}}—{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{else}}
+<p>Nothing has been stored for this host yet. Once its agent posts a
+report, the graphs and tables fill in.</p>
+{{end}}
+{{end}}
+{{end}}

@@ -1,0 +1,16 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Enrol the authenticator</h1>
+<p>Scan the code with an authenticator app, or enter the secret by hand.
+Then confirm with the app's current code — the account exists only once a
+code has verified.</p>
+<img class="qr" src="{{.QR}}" alt="TOTP enrolment QR code" width="196" height="196">
+<p class="secret">{{.Secret}}</p>
+<form method="post" action="/setup/confirm" class="stack">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="setup_code" value="{{.Code}}">
+  <label>Code <input name="code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" autofocus required></label>
+  <button>Confirm</button>
+</form>
+{{end}}
+{{end}}

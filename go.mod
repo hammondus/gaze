@@ -2,6 +2,16 @@ module github.com/hammondus/gaze
 
 go 1.26.5
 
+// github.com/hammondus/mfa is imported but deliberately absent from this
+// file. It is not published yet, and a require on an unpublished module
+// fails the build even inside a workspace: Go resolves the version before
+// it consults go.work. The import works because the git-ignored go.work
+// lists ../mfa. Until publication, `go mod tidy` and the Docker build
+// (which excludes go.work) cannot run. On publication:
+//
+//	go get github.com/hammondus/mfa@vX.Y.Z
+//	go mod tidy
+//	rm go.work
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -28,9 +38,11 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.3.8 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )

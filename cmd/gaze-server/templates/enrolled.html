@@ -1,0 +1,12 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Host enrolled</h1>
+<p>The token for <strong>{{.Name}}</strong>, shown this once. Leave this
+page and it is gone; the server keeps only its hash.</p>
+<pre class="token">{{.Token}}</pre>
+<p>On the host, as root:</p>
+<pre>install -d -m 0750 -o gaze -g gaze /etc/gaze
+(umask 077; echo "{{.Token}}" &gt; /etc/gaze/token) &amp;&amp; chown gaze:gaze /etc/gaze/token</pre>
+<p><a href="/">Back to the host list.</a></p>
+{{end}}
+{{end}}

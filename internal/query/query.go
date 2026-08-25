@@ -65,18 +65,81 @@ func (q *Q) Hosts(ctx context.Context) ([]Host, error) {
 	return out, rows.Err()
 }
 
+// Overview is one row of the fleet list: the host plus its latest raw
+// report's headline figures. A host that has never reported keeps
+// HasReport false and its figures zero — the renderer draws dashes, never
+// zeros, for those.
+type Overview struct {
+	Host
+	HasReport bool
+	CPU       float64 // mean percent over the latest report
+	MemUsed   float64 // mean bytes
+	MemTotal  uint64
+	Procs     int
+	Zombies   int
+}
+
+// Fleet returns every enrolled host with its latest raw report, in name
+// order. This is the host-list query: one round trip for the whole page.
+func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT h.id, h.name, h.kernel, h.cpus, h.agent_version, h.generation,
+		       h.schema, COALESCE(h.last_seen_at, 0),
+		       r.cpu_mean, r.mem_mean, r.mem_total, r.procs, r.procs_zombie
+		FROM hosts h
+		LEFT JOIN reports r ON r.host_id = h.id AND r.tier = 0
+		 AND r.start = (SELECT max(start) FROM reports
+		                 WHERE host_id = h.id AND tier = 0)
+		ORDER BY h.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Overview
+	for rows.Next() {
+		var o Overview
+		var seen int64
+		var cpu, mem sql.NullFloat64
+		var memTotal, procs, zombies sql.NullInt64
+		if err := rows.Scan(&o.ID, &o.Name, &o.Kernel, &o.CPUs,
+			&o.AgentVersion, &o.Generation, &o.Schema, &seen,
+			&cpu, &mem, &memTotal, &procs, &zombies); err != nil {
+			return nil, err
+		}
+		if seen > 0 {
+			o.LastSeen = time.Unix(seen, 0)
+		}
+		if cpu.Valid {
+			o.HasReport = true
+			o.CPU = cpu.Float64
+			o.MemUsed = mem.Float64
+			o.MemTotal = uint64(memTotal.Int64)
+			o.Procs = int(procs.Int64)
+			o.Zombies = int(zombies.Int64)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // Point is one aggregated observation of a host's scalars.
 type Point struct {
-	Start   time.Time
-	Samples int
-	CPU     report.Stat
-	Load1   report.Stat
-	MemTotal uint64
-	Mem     report.Stat // used bytes
+	Start     time.Time
+	Samples   int
+	CPU       report.Stat
+	Load1     report.Stat
+	MemTotal  uint64
+	Mem       report.Stat // used bytes
 	SwapTotal uint64
-	Swap    report.Stat
-	Procs   int
-	Zombies int
+	Swap      report.Stat
+	Procs     int
+	Zombies   int
+
+	// Absent names the fields the host's platform could not supply for
+	// this window, as metrics.Field values. A graph draws those as absent,
+	// never as a zero line.
+	Absent []string
 }
 
 // Scalars returns a host's aggregate series over [from, to), reading the
@@ -90,7 +153,7 @@ func (q *Q) Scalars(ctx context.Context, hostID int64, from, to time.Time) ([]Po
 		       load1_min, load1_max, load1_mean,
 		       mem_total, mem_min, mem_max, mem_mean,
 		       swap_total, swap_min, swap_max, swap_mean,
-		       procs, procs_zombie
+		       procs, procs_zombie, absent
 		FROM reports
 		WHERE host_id = ? AND tier = ? AND start >= ? AND start < ?
 		ORDER BY start`,
@@ -104,16 +167,113 @@ func (q *Q) Scalars(ctx context.Context, hostID int64, from, to time.Time) ([]Po
 	for rows.Next() {
 		var p Point
 		var start int64
+		var absent string
 		if err := rows.Scan(&start, &p.Samples,
 			&p.CPU.Min, &p.CPU.Max, &p.CPU.Mean,
 			&p.Load1.Min, &p.Load1.Max, &p.Load1.Mean,
 			&p.MemTotal, &p.Mem.Min, &p.Mem.Max, &p.Mem.Mean,
 			&p.SwapTotal, &p.Swap.Min, &p.Swap.Max, &p.Swap.Mean,
-			&p.Procs, &p.Zombies); err != nil {
+			&p.Procs, &p.Zombies, &absent); err != nil {
 			return nil, err
 		}
 		p.Start = time.Unix(start, 0)
+		if absent != "" {
+			p.Absent = strings.Split(absent, ",")
+		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// NetSeries is one interface's rates over a range.
+type NetSeries struct {
+	Name   string
+	Points []NetPoint
+}
+
+// NetPoint is one aggregated observation of an interface.
+type NetPoint struct {
+	Start  time.Time
+	Rx, Tx report.Stat // bytes per second
+}
+
+// Nets returns a host's per-interface series over [from, to), name-ordered,
+// at the same tier Scalars reads.
+func (q *Q) Nets(ctx context.Context, hostID int64, from, to time.Time) ([]NetSeries, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT name, start, rx_min, rx_max, rx_mean, tx_min, tx_max, tx_mean
+		FROM net_reports
+		WHERE host_id = ? AND tier = ? AND start >= ? AND start < ?
+		ORDER BY name, start`,
+		hostID, tierFor(from), from.Unix(), to.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []NetSeries
+	for rows.Next() {
+		var name string
+		var start int64
+		var p NetPoint
+		if err := rows.Scan(&name, &start,
+			&p.Rx.Min, &p.Rx.Max, &p.Rx.Mean,
+			&p.Tx.Min, &p.Tx.Max, &p.Tx.Mean); err != nil {
+			return nil, err
+		}
+		p.Start = time.Unix(start, 0)
+		if len(out) == 0 || out[len(out)-1].Name != name {
+			out = append(out, NetSeries{Name: name})
+		}
+		last := &out[len(out)-1]
+		last.Points = append(last.Points, p)
+	}
+	return out, rows.Err()
+}
+
+// DiskSeries is one block device's rates over a range.
+type DiskSeries struct {
+	Name   string
+	Points []DiskPoint
+}
+
+// DiskPoint is one aggregated observation of a device.
+type DiskPoint struct {
+	Start       time.Time
+	Read, Write report.Stat // bytes per second
+}
+
+// Disks returns a host's per-device series over [from, to), name-ordered,
+// at the same tier Scalars reads.
+func (q *Q) Disks(ctx context.Context, hostID int64, from, to time.Time) ([]DiskSeries, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT name, start, read_min, read_max, read_mean,
+		       write_min, write_max, write_mean
+		FROM disk_reports
+		WHERE host_id = ? AND tier = ? AND start >= ? AND start < ?
+		ORDER BY name, start`,
+		hostID, tierFor(from), from.Unix(), to.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []DiskSeries
+	for rows.Next() {
+		var name string
+		var start int64
+		var p DiskPoint
+		if err := rows.Scan(&name, &start,
+			&p.Read.Min, &p.Read.Max, &p.Read.Mean,
+			&p.Write.Min, &p.Write.Max, &p.Write.Mean); err != nil {
+			return nil, err
+		}
+		p.Start = time.Unix(start, 0)
+		if len(out) == 0 || out[len(out)-1].Name != name {
+			out = append(out, DiskSeries{Name: name})
+		}
+		last := &out[len(out)-1]
+		last.Points = append(last.Points, p)
 	}
 	return out, rows.Err()
 }

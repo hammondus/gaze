@@ -1,0 +1,6 @@
+# go.work resolves ../mfa on the dev machine only; inside the build
+# container the path is wrong, so the build must not see the file.
+go.work
+go.work.sum
+dist/
+.git/

@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>Enrol a host</h1>
+<p>Enrolling mints the host a bearer token for its agent. The token is
+shown once on the next page; the server keeps only its hash. Enrolling a
+hostname that already exists mints it a second token, which is how a token
+is rotated: mint, deploy, then revoke the old one.</p>
+<form method="post" action="/hosts/enroll" class="stack">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Hostname <input name="name" autofocus required></label>
+  <button>Enrol</button>
+</form>
+{{end}}

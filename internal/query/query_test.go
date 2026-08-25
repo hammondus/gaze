@@ -158,3 +158,84 @@ func TestLatest(t *testing.T) {
 		t.Errorf("scalars: got %+v / %+v", got.CPU, got.Procs)
 	}
 }
+
+// TestFleet covers the host-list query: a silent host keeps HasReport
+// false, a reporting one carries its latest figures.
+func TestFleet(t *testing.T) {
+	s, q, id := seed(t)
+	ctx := context.Background()
+	if _, err := s.Enroll(ctx, "silent-01"); err != nil {
+		t.Fatal(err)
+	}
+	older := sampleReport(time.Now().Add(-3 * time.Minute).Truncate(time.Second))
+	newer := sampleReport(time.Now().Add(-time.Minute).Truncate(time.Second))
+	if _, err := s.InsertReports(ctx, id, []report.Report{older, newer}); err != nil {
+		t.Fatal(err)
+	}
+
+	fleet, err := q.Fleet(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fleet) != 2 {
+		t.Fatalf("fleet = %d hosts, want 2", len(fleet))
+	}
+	silent, web := fleet[0], fleet[1]
+	if silent.Name != "silent-01" || silent.HasReport || !silent.LastSeen.IsZero() {
+		t.Errorf("silent host = %+v", silent)
+	}
+	if !web.HasReport || web.CPU != 33.5 || web.MemTotal != 8<<30 || web.Procs != 200 {
+		t.Errorf("reporting host = %+v", web)
+	}
+}
+
+// TestSeries covers the per-interface and per-device range queries, and
+// that Scalars carries the absent list through.
+func TestSeries(t *testing.T) {
+	s, q, id := seed(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Minute)
+	for i := range 3 {
+		r := sampleReport(now.Add(time.Duration(i-5) * time.Minute))
+		if _, err := s.InsertReports(ctx, id, []report.Report{r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	from, to := now.Add(-6*time.Minute), now
+
+	nets, err := q.Nets(ctx, id, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 2 || nets[0].Name != "eth0" || nets[1].Name != "wg0" {
+		t.Fatalf("nets = %+v", nets)
+	}
+	if len(nets[0].Points) != 3 || nets[0].Points[0].Rx.Mean != 2 {
+		t.Errorf("eth0 points = %+v", nets[0].Points)
+	}
+	if !nets[0].Points[1].Start.After(nets[0].Points[0].Start) {
+		t.Error("points are not time-ordered")
+	}
+
+	disks, err := q.Disks(ctx, id, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disks) != 1 || disks[0].Name != "sda" || len(disks[0].Points) != 3 {
+		t.Fatalf("disks = %+v", disks)
+	}
+	if disks[0].Points[0].Read.Max != 2 {
+		t.Errorf("sda read = %+v", disks[0].Points[0].Read)
+	}
+
+	points, err := q.Scalars(ctx, id, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("scalars = %d points, want 3", len(points))
+	}
+	if !reflect.DeepEqual(points[0].Absent, []string{"sensors"}) {
+		t.Errorf("absent = %v, want [sensors]", points[0].Absent)
+	}
+}

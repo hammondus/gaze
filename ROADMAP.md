@@ -10,7 +10,10 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 4 done. Stage 5 not started.
+**Status:** stages 1 to 5 done, except that stage 5's `hammondus/mfa`
+dependency still resolves through a local `go.work`: publish the module,
+pin it in go.mod, and delete go.work before the server image can build.
+Stage 6 not started.
 
 ---
 
@@ -108,26 +111,30 @@ database size matches the estimate in DESIGN-DECISIONS to within a factor of two
 
 ## Stage 5 — Server: web front end
 
-- [ ] Admin login: password (Argon2id) plus mandatory TOTP through
+- [x] Admin login: password (Argon2id) plus mandatory TOTP through
       `github.com/hammondus/mfa`, following `mfademo`'s session and lockout
-      pattern. Check whether `mfa` resolves before adding it; if it does not,
-      use `go.work`, never a `replace` — the same rule stage 7 applies to
-      `mailer`. Schema supports several admin accounts; the setup flow only
-      provisions one for now.
-- [ ] Session cookies `Secure` and `HttpOnly`; no page renders host data to a
+      pattern. `mfa` did not resolve, so it rides a git-ignored `go.work`
+      until it is published — see the note in go.mod. Schema supports
+      several admin accounts; the setup flow only provisions one for now.
+      Recovery is `gaze-server admin reset`, not recovery codes — see
+      DESIGN-DECISIONS.
+- [x] Session cookies `Secure` and `HttpOnly`; no page renders host data to a
       request without a valid session.
-- [ ] Host enrolment (authenticated): a page over the stage-4 `enroll` path —
+- [x] Host enrolment (authenticated): a page over the stage-4 `enroll` path —
       generate a per-host token, display it once, store only its hash.
-- [ ] Host list with current state and last-seen time.
-- [ ] Host detail: the same measurements the TUI shows, over time.
-- [ ] Graphs, vanilla front end, no framework.
-- [ ] Handlers call the stage-4 `query` package; no SQL in the HTTP layer.
-- [ ] Every host-reported string (container name, process command, interface
+- [x] Host list with current state and last-seen time.
+- [x] Host detail: the same measurements the TUI shows, over time.
+- [x] Graphs, vanilla front end, no framework — server-rendered SVG, no
+      JavaScript at all.
+- [x] Handlers call the stage-4 `query` package; no SQL in the HTTP layer.
+- [x] Every host-reported string (container name, process command, interface
       name, mount label) rendered through `html/template`, never concatenated
-      into HTML.
-- [ ] Caching per the house policy: `no-cache` on HTML, hashed asset URLs
-      `immutable`, `private` on anything per-session.
-- [ ] Absent fields drawn as gaps, never as zero.
+      into HTML. `TestStoredXSS` posts a scripted container name and asserts
+      it renders inert.
+- [x] Caching per the house policy: `no-cache` on HTML, hashed asset URLs
+      `immutable`, `private` on anything per-session, `no-store` on the two
+      pages that show a secret.
+- [x] Absent fields drawn as gaps, never as zero.
 
 **Done when** a host that has never reported, one reporting now, and one that
 stopped an hour ago are each unmistakable at a glance, and no page is

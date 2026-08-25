@@ -37,7 +37,7 @@ three binaries.
 | `internal/ui` | The Bubble Tea model and panels — a view of a `metrics.Snapshot`, not a copy of one. | `metrics` | Bubble Tea, Lip Gloss |
 | `cmd/gaze` | The TUI, over a local terminal. | `ui` | (via `ui`) |
 | `cmd/gaze-agent` | Collects and posts to a server. | `metrics`, `report`, `update` | none |
-| `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mailer, mfa, `golang.org/x/crypto` (SSH) |
+| `cmd/gaze-server` | Ingests, stores, alerts, and presents — over HTTP and, optionally, SSH. | `report`, `ui` | SQLite, mfa, `golang.org/x/crypto`, `rsc.io/qr`; mailer at stage 7 |
 
 The prose in this file names the components by their short names; the paths
 are the ones in the table.
@@ -324,10 +324,11 @@ running ones off the screen.
 Bubble Tea and Lip Gloss bring about twenty modules between them.
 
 State the footprint per binary, not per repository. `gaze-agent` has no
-external dependencies at all. `gaze-server` carries SQLite, the mailer, `mfa`,
-and — once the SSH TUI in stage 6 lands — Bubble Tea and Lip Gloss too, through
-`ui`. `gaze` carries only Bubble Tea and Lip Gloss, same as before `ui` was
-split out; it just imports them one package away rather than directly.
+external dependencies at all. `gaze-server` carries SQLite, `mfa`,
+`golang.org/x/crypto` (Argon2 now, SSH at stage 6), and `rsc.io/qr` — the
+mailer arrives at stage 7, and Bubble Tea and Lip Gloss through `ui` at
+stage 6. `gaze` carries only Bubble Tea and Lip Gloss, same as before `ui`
+was split out; it just imports them one package away rather than directly.
 `make release` is where the footprint is worth checking, not `go.sum`.
 
 The alternative is an alt-screen, raw mode, and ANSI by hand, in under a
@@ -998,6 +999,110 @@ environment variable set at deploy time, never a file written beside the
 database. `mfademo`'s auto-generated `key.dev` is a convenience for trying the
 demo, explicitly not a pattern to copy — a key stored next to what it
 encrypts protects nothing.
+
+## First-run setup is a code in the log, not an open page
+
+The web setup flow provisions the one admin, and it runs only while no
+admin exists. That window is the dangerous part: a freshly deployed server
+whose `/setup` page is open to whoever finds it first hands the admin
+account — and with it the fleet view — to a stranger who beat the operator
+to the URL by minutes.
+
+So the server, when it starts with no admin, mints a random code and prints
+it to its own log. Every step of the setup flow requires it. Reading the
+log already means shell access to the server, which is exactly the person
+setup is for; nobody else can even see the account form. The code travels
+in form fields, never the URL, so it stays out of proxy logs.
+
+Two smaller choices inside the flow:
+
+- **The account is not live until one TOTP code has verified.** The admin
+  row is created unconfirmed, and confirming spends the code like any other
+  login would. A mis-scanned QR code or a phone with a wrong clock
+  therefore fails at setup, when it costs nothing, instead of at the first
+  real sign-in, when it costs the recovery path.
+- **The QR code is a `data:` URI in the code-gated page**, not an image URL.
+  A `/setup/qr.png` route would be a second place the secret is readable
+  and a second gate to remember; embedded in the one response, the secret
+  has no URL at all. The page is `no-store` for the same reason.
+
+## Admin recovery is a CLI reset, not recovery codes
+
+`mfa` ships a tested recovery-code path and `mfademo` shows it working.
+gaze deliberately does not use it. Recovery codes exist for services whose
+users have no other door: lose the phone, and the code list is the only way
+back in. A gaze operator always has another door — shell access to the
+server the database sits on — so `gaze-server admin reset` deletes the
+admin row (sessions cascade), and the next start re-arms the setup flow.
+
+That trades a printed list to keep safe for one `docker compose exec`, and
+removes the pages, table, and one-time-display handling the codes would
+need. The cost is honest: recovery requires the shell. An operator who can
+reach neither the shell nor their authenticator has lost more than a
+monitoring dashboard.
+
+The lockout counter is likewise one column, shared between password and
+TOTP failures. There is one account; either factor failing repeatedly
+means the same thing, and two counters would just be two ways to spell it.
+
+## Graphs are server-rendered SVG, and gaps are the point
+
+The host page's graphs are inline SVG computed in Go — scales, ticks, and
+path data — and stamped by the template. The page ships no JavaScript at
+all. What a client-side chart would buy — hover readouts, live refresh —
+is not worth a JSON API surface plus client code to audit, for a page whose
+job is a glance. If that judgement changes, the graph builder already
+produces the series; only the last step moves.
+
+The rules the builder enforces, in test rather than by eye:
+
+- **A line is segments, never one polyline.** Adjacent points further apart
+  than 2.5× the series' own median spacing break the path, so an outage is
+  a hole. The threshold comes from the data, not the tier, so a host
+  directed to report on a slower interval does not render as all gap.
+  Points the platform marked absent are skipped the same way: a gap, never
+  a zero line. A lone point between gaps draws as a dot.
+- **The envelope survives.** CPU, load, memory, and swap draw the min–max
+  band behind the mean, which is what keeps a 20-second spike visible at
+  every zoom — the same argument as "Sample often, report rarely", carried
+  to the screen.
+- **Density is capped.** A 7-day range at raw resolution is ten thousand
+  points; the builder merges buckets to at most 400, aggregating exactly
+  the way the roll-up does (min of mins, max of maxes, sample-weighted
+  mean). The range picks the tier through the query package's retention
+  logic; thinning is presentation and stays in the web layer.
+- **"No swap" and "swap absent" draw differently.** A machine with no swap
+  configured gets a note saying so; a platform that cannot report swap gets
+  gaps. Same rule as everywhere: switched off, not present, and not
+  supported are different facts.
+
+Every colour lives in the one stylesheet — the SVG carries classes, not
+inline styles, which also keeps the CSP free of `unsafe-inline`.
+
+## Web sessions are cookies with the screws in
+
+The browser session follows `mfademo` nearly verbatim: the cookie holds
+256 random bits whose SHA-256 is the database key, the session row is
+created unauthenticated by the password and promoted only by a TOTP code,
+and expiry lives in the row so the client cannot extend itself. CSRF is the
+double-submit cookie, checked on every unsafe method before any handler
+runs — the ingest API sits outside the web handler entirely, so agents
+never see it.
+
+Cookies are `Secure` unconditionally in deployment: the proxy terminates
+TLS, and the agents already refuse plain HTTP, so there is no honest
+deployment where an insecure cookie is right. `-insecure-cookies` exists
+because local development serves plain HTTP and a Secure cookie there is
+silently dropped; the flag names the loosening, defaults off, and appears
+in no unit file.
+
+The route table is the access control: one mux holds the pages that exist
+before a session — login, the code prompt, setup, static files — and
+everything else, including unknown paths, falls through to the mux wrapped
+in the session check. A page that rendered host data without a session
+would have to be registered in the wrong mux to exist, which is a shape a
+review catches in one glance; per-handler guard calls are a shape it
+cannot.
 
 ## Host-reported strings are untrusted input
 

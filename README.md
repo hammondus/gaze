@@ -187,25 +187,40 @@ container statistics really grants.
 
 `gaze-server` ingests and stores reports in SQLite: raw for 7 days, 5-minute
 roll-ups for 90 days, hourly for 2 years, each keeping minimum and maximum
-beside the mean so spikes survive aggregation. The web front end and SSH view
-are still to come — see [ROADMAP.md](ROADMAP.md).
+beside the mean so spikes survive aggregation. It serves a web front end
+over them: a host list that tells a reporting host from a stale one from
+one that has never reported, and per-host graphs — server-rendered SVG, no
+JavaScript — with tables for filesystems, containers, and the busiest
+processes. The SSH view is still to come — see [ROADMAP.md](ROADMAP.md).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
 release asset:
 
 ```
+echo "GAZE_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
 make deploy        # on the server: git pull, then docker compose up -d --build
 make logs
 ```
 
-To enroll a host, which prints its bearer token exactly once:
+`GAZE_KEY` seals the admin's TOTP secret; keep it out of the repository and
+away from the database. On first start the log prints a setup code; open
+`/setup`, enter it, and create the admin account — a password and a
+mandatory authenticator enrolment. If the admin is ever locked out, reset
+from the shell and set up again:
+
+```
+docker compose exec gaze-server gaze-server admin reset -db /data/gaze.db
+```
+
+To enroll a host, use the **Enrol a host** page, or from the shell:
 
 ```
 docker compose exec gaze-server gaze-server enroll <hostname> -db /data/gaze.db
 ```
 
-The database stores the token's SHA-256, never the token. Enrolling the same
-host again mints a second token, which is how rotation works.
+Both print the host's bearer token exactly once. The database stores the
+token's SHA-256, never the token. Enrolling the same host again mints a
+second token, which is how rotation works.
 
 ## Requirements
 
@@ -280,20 +295,26 @@ GAZE_LIVE=1 go test ./internal/ui -run TestLiveFrame -v
 ```
 
 For the choices behind the code, see
-[DESIGN-DECISIONS.md](DESIGN-DECISIONS.md). For what is planned beyond the
-current TUI — an agent and a central server — see [ROADMAP.md](ROADMAP.md).
+[DESIGN-DECISIONS.md](DESIGN-DECISIONS.md). For what is built and what is
+still planned, see [ROADMAP.md](ROADMAP.md).
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `main.go` | Flags and start-up |
+| `cmd/gaze` | The TUI: flags and start-up |
+| `cmd/gaze-agent` | Sampling loop, ring buffer, and posting |
+| `cmd/gaze-server` | Ingest, the web front end, and the `enroll` and `admin reset` commands |
 | `internal/metrics` | Collection from `/proc` and `/sys`. Standard library only. |
+| `internal/report` | The wire contract between agent and server. Standard library only. |
+| `internal/store` | The server's schema, migrations, and every write |
+| `internal/query` | Read-only reconstruction of per-host views |
 | `internal/ui` | Bubble Tea model, panels, and formatting |
 | `internal/update` | `--update` and `--check-update` |
 
-The two packages share one type, `metrics.Snapshot`. The collector decides what
-the numbers are, and the display decides what they look like.
+The shared type is `metrics.Snapshot`: the collector decides what the
+numbers are, the display decides what they look like, and `report` reduces
+a run of snapshots to what goes over the wire.
 
 ## Licence
 

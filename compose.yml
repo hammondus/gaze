@@ -1,15 +1,29 @@
 # gaze-server behind nginx proxy manager, which terminates TLS. The agents
-# refuse plain http off loopback, so the proxy in front is not optional.
+# refuse plain http off loopback, and the web front end marks its cookies
+# Secure, so the proxy in front is not optional.
 #
 # To enroll a host (prints its token once):
 #
 #   docker compose exec gaze-server gaze-server enroll <hostname> -db /data/gaze.db
+#
+# If the admin is locked out (lost authenticator, forgotten password):
+#
+#   docker compose exec gaze-server gaze-server admin reset -db /data/gaze.db
+#
+# then restart the server and follow the setup code in `docker compose logs`.
 services:
   gaze-server:
     build: .
     restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      # GAZE_KEY seals the admin's TOTP secret and must come from outside
+      # the container — a key stored beside the database it protects
+      # protects nothing. Put it in .env (git-ignored) on the server:
+      #
+      #   echo "GAZE_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
+      - GAZE_KEY
     volumes:
       # A named volume rather than a bind mount: the container runs as its
       # own unprivileged user, and the volume inherits that ownership.

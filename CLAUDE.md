@@ -32,6 +32,7 @@ Opt-in tests that need a real kernel or daemon (skip everywhere else):
 GAZE_LIVE=1 go test ./internal/ui -run TestLiveFrame -v        # collect from the running kernel, render a frame
 GAZE_LIVE=1 go test ./internal/metrics -run TestCollectCost -v  # measure collection cost against the live Docker socket
 GAZE_SYNTH=1 go test ./internal/store -run TestSyntheticWeek -v  # write a synthetic week for ten hosts; the stage 4 done-when proof
+GAZE_DEMO_DB=/tmp/demo.db go test ./cmd/gaze-server -run TestSeedDemo  # seed a database for walking the web pages by hand
 ```
 
 The full test suite runs on macOS: collection is tested against the fixture
@@ -50,9 +51,13 @@ snapshots to what goes over the wire.
 - `cmd/gaze-agent` — samples on a short interval, posts reductions on a long
   one. The loop, ring buffer, and HTTP client live in `package main`; nothing
   else consumes them. Test with `go test ./cmd/gaze-agent`.
-- `cmd/gaze-server` — ingest endpoint, roll-up sweep, and the `enroll`
-  subcommand. Ships as a container image (`Dockerfile`, `compose.yml`),
-  never a release asset.
+- `cmd/gaze-server` — ingest endpoint, roll-up sweep, the web front end
+  (login, setup, host pages, server-rendered SVG graphs — no JavaScript),
+  and the `enroll` and `admin reset` subcommands. Needs `GAZE_KEY` in the
+  environment. Ships as a container image (`Dockerfile`, `compose.yml`),
+  never a release asset. Until `hammondus/mfa` is published, building needs
+  the git-ignored `go.work` (see the note in go.mod); the Docker build does
+  not work yet.
 - `internal/store` — the server's schema, forward-only migrations, and every
   write: enrolment, ingest, roll-up, retention. SQLite through
   `modernc.org/sqlite`, the server's one storage dependency.

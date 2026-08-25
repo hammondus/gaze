@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>Hosts</h1>
+{{if not .Data}}
+<p>No hosts are enrolled yet. <a href="/hosts/enroll">Enrol the first one.</a></p>
+{{else}}
+<table class="fleet">
+  <thead>
+    <tr><th>host</th><th>state</th><th>last seen</th><th class="num">cpu</th><th class="num">memory</th><th class="num">procs</th><th>agent</th></tr>
+  </thead>
+  <tbody>
+  {{range .Data}}
+    <tr class="{{.StateClass}}">
+      <td><a href="/hosts/{{.ID}}">{{.Name}}</a></td>
+      <td><span class="chip {{.StateClass}}">{{.State}}</span></td>
+      <td>{{if .LastSeen.IsZero}}—{{else}}{{ago .LastSeen}}{{end}}</td>
+      {{if .HasReport}}
+      <td class="num">{{percent .CPU}}</td>
+      <td class="num">{{percent .MemPct}} <span class="dim">of {{bytes .MemTotal}}</span></td>
+      <td class="num">{{.Procs}}{{if .Zombies}} <span class="warn">({{.Zombies}}Z)</span>{{end}}</td>
+      {{else}}
+      <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+      {{end}}
+      <td class="dim">{{if .AgentVersion}}{{.AgentVersion}}{{else}}—{{end}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

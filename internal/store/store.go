@@ -259,4 +259,24 @@ CREATE TABLE rollup_state (
 	tier  INTEGER PRIMARY KEY,
 	until INTEGER NOT NULL
 );
+`, `
+-- Stage 5: what the admins table was missing to actually sign someone in.
+-- totp_last_step records the highest TOTP counter step already accepted, so
+-- a code cannot be replayed inside the skew window; totp_confirmed_at is
+-- NULL until the first valid code proves the authenticator was enrolled,
+-- and an unconfirmed admin can neither sign in nor end the setup flow.
+ALTER TABLE admins ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admins ADD COLUMN totp_confirmed_at INTEGER;
+
+-- id is the SHA-256 of the cookie token, same shape as agent tokens: a
+-- database dump holds no usable session credential, and the lookup stays
+-- one indexed read. authed_at NULL means the password cleared but the TOTP
+-- code has not: the session exists and reaches nothing but the code prompt.
+CREATE TABLE admin_sessions (
+	id         BLOB PRIMARY KEY,
+	admin_id   INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+	created_at INTEGER NOT NULL,
+	expires_at INTEGER NOT NULL,
+	authed_at  INTEGER
+) WITHOUT ROWID;
 `}
