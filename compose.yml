@@ -1,0 +1,19 @@
+# gaze-server behind nginx proxy manager, which terminates TLS. The agents
+# refuse plain http off loopback, so the proxy in front is not optional.
+#
+# To enroll a host (prints its token once):
+#
+#   docker compose exec gaze-server gaze-server enroll <hostname> -db /data/gaze.db
+services:
+  gaze-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # A named volume rather than a bind mount: the container runs as its
+      # own unprivileged user, and the volume inherits that ownership.
+      - gaze-data:/data
+
+volumes:
+  gaze-data:

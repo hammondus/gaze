@@ -10,7 +10,7 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 3 done. Stage 4 not started.
+**Status:** stages 1 to 4 done. Stage 5 not started.
 
 ---
 
@@ -79,29 +79,29 @@ minutes and the gap is filled on its return.
 
 ## Stage 4 — Server: ingest and storage
 
-- [ ] `cmd/gaze-server`, SQLite through `modernc.org/sqlite`, WAL, one writer.
-- [ ] Schema and forward-only migrations: hosts, admin accounts (see stage 5),
+- [x] `cmd/gaze-server`, SQLite through `modernc.org/sqlite`, WAL, one writer.
+- [x] Schema and forward-only migrations: hosts, admin accounts (see stage 5),
       per-host bearer tokens stored as unsalted SHA-256 hashes, looked up by
       index, with `last_used_at`. See "Each host's token is its own" in
       DESIGN-DECISIONS for why unsalted is correct here.
-- [ ] `gaze-server enroll <hostname>`: generate a token, print it once, store
+- [x] `gaze-server enroll <hostname>`: generate a token, print it once, store
       only its hash. The stage-5 web flow wraps this path; it also serves
       headless setups on its own.
-- [ ] Ingest endpoint: token hash lookup, a size cap enforced on the
+- [x] Ingest endpoint: token hash lookup, a size cap enforced on the
       decompressed body, schema tolerance in both directions (see "The wire
       format is not the snapshot"), `429` with `Retry-After` under load.
-- [ ] Store the agent's sample time and the server's receive time per report.
+- [x] Store the agent's sample time and the server's receive time per report.
       Charts and roll-ups read sample time; staleness reads receive time.
-- [ ] Retention and roll-up: raw 60s for 7 days, 5-minute for 90 days, hourly
+- [x] Retention and roll-up: raw 60s for 7 days, 5-minute for 90 days, hourly
       for 2 years, keeping minimum and maximum beside the mean. Roll up only
       windows older than two hours, so a backlog flushed after an outage is
       never rolled up short.
-- [ ] A `query` package that reconstructs a per-host view from stored
+- [x] A `query` package that reconstructs a per-host view from stored
       reports. The web front end (stage 5) and the SSH TUI (stage 6) both
       call it; neither writes SQL of its own.
-- [ ] Dockerfile and compose file; restore the `docker-build`, `deploy`, and
+- [x] Dockerfile and compose file; restore the `docker-build`, `deploy`, and
       `logs` Makefile targets, acting on the server alone.
-- [ ] `release` builds `gaze` and `gaze-agent` only, asset names unchanged.
+- [x] `release` builds `gaze` and `gaze-agent` only, asset names unchanged.
 
 **Done when** a week of synthetic data for ten hosts rolls up correctly and the
 database size matches the estimate in DESIGN-DECISIONS to within a factor of two.

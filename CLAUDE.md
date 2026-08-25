@@ -31,6 +31,7 @@ Opt-in tests that need a real kernel or daemon (skip everywhere else):
 ```sh
 GAZE_LIVE=1 go test ./internal/ui -run TestLiveFrame -v        # collect from the running kernel, render a frame
 GAZE_LIVE=1 go test ./internal/metrics -run TestCollectCost -v  # measure collection cost against the live Docker socket
+GAZE_SYNTH=1 go test ./internal/store -run TestSyntheticWeek -v  # write a synthetic week for ten hosts; the stage 4 done-when proof
 ```
 
 The full test suite runs on macOS: collection is tested against the fixture
@@ -49,8 +50,15 @@ snapshots to what goes over the wire.
 - `cmd/gaze-agent` — samples on a short interval, posts reductions on a long
   one. The loop, ring buffer, and HTTP client live in `package main`; nothing
   else consumes them. Test with `go test ./cmd/gaze-agent`.
-- `cmd/gaze-devserver` — throwaway ingest endpoint for trying the agent;
-  deleted when `gaze-server` lands.
+- `cmd/gaze-server` — ingest endpoint, roll-up sweep, and the `enroll`
+  subcommand. Ships as a container image (`Dockerfile`, `compose.yml`),
+  never a release asset.
+- `internal/store` — the server's schema, forward-only migrations, and every
+  write: enrolment, ingest, roll-up, retention. SQLite through
+  `modernc.org/sqlite`, the server's one storage dependency.
+- `internal/query` — read-only reconstruction of per-host views for
+  presentation. The stage-5 web front end and stage-6 SSH TUI call it;
+  neither writes SQL.
 - `internal/metrics` — collection from `/proc`, `/sys`, and the container
   runtime socket. **Standard library only; do not add a dependency here.**
 - `internal/report` — the wire contract between the agent and the server:
@@ -58,8 +66,9 @@ snapshots to what goes over the wire.
   only.** Shipped fields are never renamed; the golden fixture in
   `internal/report/testdata` fails on any change to the JSON.
 - `internal/ui` — Bubble Tea model, panels, tables, formatting. Bubble Tea and
-  Lip Gloss are the project's entire external dependency footprint, pinned to
-  their v1 lines.
+  Lip Gloss, pinned to their v1 lines, are the only external dependencies the
+  `gaze` binary carries; state the dependency footprint per binary, not per
+  repository.
 - `internal/update` — self-update from GitHub releases, using plain web
   requests (no GitHub API, to stay clear of its rate limit).
 

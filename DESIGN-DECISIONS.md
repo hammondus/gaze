@@ -1104,6 +1104,36 @@ months into two years for under 500 MB. Rolled-up rows keep the minimum and
 maximum beside the mean, or every spike disappears the moment the raw tier
 expires, which is exactly when you would go looking for one.
 
+Stage 4 measured and settled the details:
+
+- **Measured size: 224 MB for a synthetic week of ten hosts**, against the
+  77 to 115 MB the row arithmetic predicted — inside the done-when factor of
+  two. The gap is indexes and per-row key overhead, which the estimate
+  ignored. Steady state is bounded anyway: the raw tier caps at seven days,
+  so the long-run database is roughly one raw week plus the far smaller
+  roll-up tiers.
+- **"One writer" is a one-connection write pool** beside a concurrent read
+  pool, both on the same WAL file. `internal/query` gets the read pool; every
+  write goes through `internal/store`.
+- **Roll-up aggregation is min of mins, max of maxes, and a sample-weighted
+  mean** for everything that was a `Stat` on the wire. Counts, mount usage,
+  and container memory keep their **window peak** instead: a peak is the
+  number a capacity or a zombie question asks for, and a mean of
+  last-observations answers nothing.
+- **The busiest processes stay at raw resolution only.** After seven days the
+  host-level envelopes are the history; per-process detail is the thing
+  deliberately let go, per "The wire format is not the snapshot".
+- **The roll-up runs behind a watermark per tier.** A report that arrives
+  more than two hours late — past the agent's own buffer horizon, so only a
+  badly skewed clock produces one — lands in the raw tier but is behind the
+  watermark and never rolled. It serves raw queries for a week and then
+  expires. Accepted: re-rolling closed windows for a case no healthy agent
+  can produce is not worth the machinery.
+- **Redelivery is idempotent by primary key.** An agent whose POST landed
+  but whose reply was lost sends the same report again; `INSERT OR REPLACE`
+  on (host, tier, start) makes the second arrival a no-op rather than a
+  duplicate.
+
 ## The collector is one process; presentation is swappable, not separate
 
 `cmd/gaze-server` ingests, stores, alerts, and — through `ui` — presents, in

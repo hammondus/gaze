@@ -6,6 +6,7 @@
 # only `make run` needs a Linux kernel.
 
 BIN     := gaze
+AGENT   := gaze-agent
 PKG     := github.com/hammondus/gaze
 DIST    := dist
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -44,8 +45,15 @@ run: $(DIST)/$(BIN)-linux-arm64 ## Run the real binary against a Linux kernel.
 	  -v $(PWD)/$(DIST):/dist:ro \
 	  $(RUNIMG) /dist/$(BIN)-linux-arm64
 
+# RELEASED lists every release asset. gaze-server is deliberately absent:
+# it ships as a container image, never a release binary. The names are a
+# compatibility contract with every installed --update; add beside them,
+# never rename.
+RELEASED := $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64 \
+            $(DIST)/$(AGENT)-linux-arm64 $(DIST)/$(AGENT)-linux-amd64
+
 .PHONY: release
-release: $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64 $(DIST)/SHA256SUMS ## Build the deploy artifacts.
+release: $(RELEASED) $(DIST)/SHA256SUMS ## Build the deploy artifacts.
 	@ls -lh $(DIST)
 
 # dist is also the name of the output directory, so without .PHONY make finds
@@ -56,9 +64,9 @@ dist: release ## Build the deploy artifacts. Alias for release.
 
 # Checksums let a target machine confirm it got the bytes you built. The tool
 # is named sha256sum on Linux and shasum on macOS.
-$(DIST)/SHA256SUMS: $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64
-	@cd $(DIST) && { command -v sha256sum >/dev/null && sha256sum $(BIN)-linux-* \
-	  || shasum -a 256 $(BIN)-linux-*; } > SHA256SUMS
+$(DIST)/SHA256SUMS: $(RELEASED)
+	@cd $(DIST) && { command -v sha256sum >/dev/null && sha256sum $(BIN)-linux-* $(AGENT)-linux-* \
+	  || shasum -a 256 $(BIN)-linux-* $(AGENT)-linux-*; } > SHA256SUMS
 	@cat $@
 
 .PHONY: publish
@@ -68,11 +76,15 @@ publish: release ## Attach the artifacts to a GitHub release for the current tag
 	@test -z "$$(git status --porcelain)" || \
 	  { echo "publish: the working tree is dirty; commit first"; exit 1; }
 	gh release create "$$(git tag --points-at HEAD | head -1)" \
-	  $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64 $(DIST)/SHA256SUMS \
+	  $(RELEASED) $(DIST)/SHA256SUMS \
 	  --generate-notes
 
 # Only Linux targets: there is nothing to ship for macOS or Windows, because
 # the metrics come from /proc.
+$(DIST)/$(AGENT)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
+	@mkdir -p $(DIST)
+	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze-agent
+
 $(DIST)/$(BIN)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
 	@mkdir -p $(DIST)
 	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze
@@ -80,6 +92,21 @@ $(DIST)/$(BIN)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
 .PHONY: install
 install: ## Install into GOBIN on this machine.
 	$(GOENV) go install -ldflags "$(LDFLAGS)" ./cmd/gaze
+
+# The three targets below act on gaze-server alone: it deploys as a
+# container behind nginx proxy manager, and is never a release asset.
+.PHONY: docker-build
+docker-build: ## Confirm the server image builds.
+	docker compose build
+
+.PHONY: deploy
+deploy: ## On the server: pull and restart the running stack.
+	git pull
+	docker compose up -d --build
+
+.PHONY: logs
+logs: ## Follow the server's logs.
+	docker compose logs -f gaze-server
 
 .PHONY: clean
 clean: ## Remove build output.

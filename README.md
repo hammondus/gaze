@@ -181,9 +181,31 @@ gaze-agent -server https://gaze.example.net -token-file /etc/gaze/token
 To run it as a service, start from
 [contrib/gaze-agent.service](contrib/gaze-agent.service): it documents the
 unprivileged user, the token file, and what joining the `docker` group for
-container statistics really grants. `cmd/gaze-devserver` is a throwaway
-endpoint that logs what an agent posts, for trying the path before a real
-server exists.
+container statistics really grants.
+
+## The server
+
+`gaze-server` ingests and stores reports in SQLite: raw for 7 days, 5-minute
+roll-ups for 90 days, hourly for 2 years, each keeping minimum and maximum
+beside the mean so spikes survive aggregation. The web front end and SSH view
+are still to come — see [ROADMAP.md](ROADMAP.md).
+
+It deploys as a container behind a TLS-terminating proxy and is never a
+release asset:
+
+```
+make deploy        # on the server: git pull, then docker compose up -d --build
+make logs
+```
+
+To enroll a host, which prints its bearer token exactly once:
+
+```
+docker compose exec gaze-server gaze-server enroll <hostname> -db /data/gaze.db
+```
+
+The database stores the token's SHA-256, never the token. Enrolling the same
+host again mints a second token, which is how rotation works.
 
 ## Requirements
 
