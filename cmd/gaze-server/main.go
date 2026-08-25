@@ -22,11 +22,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/store"
 	"github.com/hammondus/mfa"
 )
@@ -47,6 +49,10 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen `address`")
 	insecureCookies := flag.Bool("insecure-cookies", false,
 		"drop the Secure attribute from cookies, for plain-HTTP local development only")
+	sshAddr := flag.String("ssh-addr", "",
+		"listen `address` for the SSH TUI; empty leaves SSH off")
+	sshKeys := flag.String("ssh-authorized-keys", "",
+		"`path` to the SSH allow-list, authorized_keys format (default: authorized_keys beside the database)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -90,6 +96,26 @@ func main() {
 	web, err := newWebServer(s, key, !*insecureCookies)
 	if err != nil {
 		fatal("%v", err)
+	}
+
+	// The SSH TUI is its own listener, off by default and independent of
+	// the web front end. Its host key lives beside the database, so a
+	// restart never changes the server's SSH identity.
+	if *sshAddr != "" {
+		keysPath := *sshKeys
+		if keysPath == "" {
+			keysPath = filepath.Join(filepath.Dir(*dbPath), "authorized_keys")
+		}
+		hostKey := filepath.Join(filepath.Dir(*dbPath), "ssh_host_key")
+		sshSrv, err := newSSHServer(query.New(s.Read()), *sshAddr, hostKey, keysPath)
+		if err != nil {
+			fatal("ssh: %v", err)
+		}
+		go func() {
+			if err := sshSrv.serve(ctx); err != nil {
+				log.Printf("ssh: %v", err)
+			}
+		}()
 	}
 
 	mux := http.NewServeMux()

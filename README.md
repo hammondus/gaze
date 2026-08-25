@@ -222,6 +222,21 @@ Both print the host's bearer token exactly once. The database stores the
 token's SHA-256, never the token. Enrolling the same host again mints a
 second token, which is how rotation works.
 
+### The SSH view
+
+The server can also serve the gaze TUI itself over SSH, drawn from stored
+reports instead of `/proc`: `ssh` in, land on the fleet list, and open any
+host in the same dashboard the local binary renders. It is off by default;
+start the server with `-ssh-addr :2222` to turn it on.
+
+Authentication is public keys only, checked against an
+`authorized_keys`-format file beside the database (or wherever
+`-ssh-authorized-keys` points). The file is re-read on every connection,
+so adding or revoking a key needs no restart. The server's host key is
+generated on first run and kept beside the database, so its SSH identity
+survives restarts. In the session, `enter` opens a host, `q` steps back,
+and `q` on the list disconnects.
+
 ## Requirements
 
 gaze reads `/proc` and `/sys` directly, so **it runs on Linux only**. It
@@ -304,7 +319,7 @@ still planned, see [ROADMAP.md](ROADMAP.md).
 |---|---|
 | `cmd/gaze` | The TUI: flags and start-up |
 | `cmd/gaze-agent` | Sampling loop, ring buffer, and posting |
-| `cmd/gaze-server` | Ingest, the web front end, and the `enroll` and `admin reset` commands |
+| `cmd/gaze-server` | Ingest, the web and SSH front ends, and the `enroll` and `admin reset` commands |
 | `internal/metrics` | Collection from `/proc` and `/sys`. Standard library only. |
 | `internal/report` | The wire contract between agent and server. Standard library only. |
 | `internal/store` | The server's schema, migrations, and every write |

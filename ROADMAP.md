@@ -10,10 +10,10 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 5 done, except that stage 5's `hammondus/mfa`
+**Status:** stages 1 to 6 done, except that stage 5's `hammondus/mfa`
 dependency still resolves through a local `go.work`: publish the module,
 pin it in go.mod, and delete go.work before the server image can build.
-Stage 6 not started.
+Stage 7 not started.
 
 ---
 
@@ -146,28 +146,34 @@ A second, optional way to look at the fleet, alongside the browser: `ssh` to
 the collector and land in the same Bubble Tea interface `gaze` already
 renders locally, sourced from stored reports instead of `/proc`.
 
-- [ ] Split the rendering half of `internal/ui` from the local-collection
-      wiring, staying under `internal/`. `cmd/gaze-server` needs the `Model`,
-      not the collection loop around it.
-- [ ] Reconstruct a `metrics.Snapshot`-shaped view per host through the
-      stage-4 `query` package. Fields a report never carried — the full
-      process table, per-core CPU — render as `Absent`, not zero: this is the
-      collector's reduced view, not a remote `gaze`.
-- [ ] SSH server hand-rolled against `golang.org/x/crypto/ssh`, not an app
+- [x] Split the rendering half of `internal/ui` from the local-collection
+      wiring, staying under `internal/`. The split is one type: `ui.New`
+      takes a `Source` function instead of a `*metrics.Collector`, so the
+      local binary passes `col.Collect` and the server passes a
+      query-backed reconstructor.
+- [x] Reconstruct a `metrics.Snapshot`-shaped view per host through the
+      stage-4 `query` package (`query.LatestSnapshot`). Fields a report
+      never carried — the full process table, per-core CPU, sensors —
+      render as `Absent`, not zero: this is the collector's reduced view,
+      not a remote `gaze`.
+- [x] SSH server hand-rolled against `golang.org/x/crypto/ssh`, not an app
       framework: one session type, pubkey auth, a rendered view. See
       DESIGN-DECISIONS for why this is not `charmbracelet/wish`.
-- [ ] Generate a host key on first run and persist it beside the database. A
-      restart must not change the server's SSH identity.
-- [ ] Handle `pty-req` and `window-change` requests, so resize works the way
+- [x] Generate a host key on first run and persist it beside the database. A
+      restart must not change the server's SSH identity;
+      `TestHostKeyPersists` pins it.
+- [x] Handle `pty-req` and `window-change` requests, so resize works the way
       it does in a local terminal. These are the parts `wish` would have
       hidden; the checklist owns them instead.
-- [ ] Auth is public-key only, checked against a configured allow-list — no
-      password, no MFA, no session cookie. Reuses the trust an operator
-      already has SSHing into these hosts as root, and never touches `mfa`.
-- [ ] One TUI session per connection; `q` disconnects rather than exiting a
-      process.
-- [ ] Its own listen address and flag, off by default and independent of the
-      web front end — either runs without the other.
+- [x] Auth is public-key only, checked against an `authorized_keys`-format
+      allow-list beside the database (or `-ssh-authorized-keys`), re-read
+      per handshake so revocation needs no restart — no password, no MFA,
+      no session cookie, and `mfa` is never touched.
+- [x] One TUI session per connection; `q` disconnects rather than exiting a
+      process. A session lands on the fleet list; enter opens a host in
+      the ordinary dashboard, and `q` steps back before it disconnects.
+- [x] Its own listen address and flag (`-ssh-addr`), off by default and
+      independent of the web front end — either runs without the other.
 
 **Done when** `ssh -p <port> gaze@server` with an authorized key drops
 straight into a live view of every reporting host, and an unlisted key is

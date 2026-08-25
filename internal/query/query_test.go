@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hammondus/gaze/internal/metrics"
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
 )
@@ -237,5 +238,73 @@ func TestSeries(t *testing.T) {
 	}
 	if !reflect.DeepEqual(points[0].Absent, []string{"sensors"}) {
 		t.Errorf("absent = %v, want [sensors]", points[0].Absent)
+	}
+}
+
+// TestLatestSnapshot covers the stage-6 reconstruction: the stored report
+// comes back Snapshot-shaped, and what a report never carried is absent,
+// not zero.
+func TestLatestSnapshot(t *testing.T) {
+	s, q, id := seed(t)
+	ctx := context.Background()
+
+	// A host that has never reported is an error, not a screen of zeros.
+	if _, err := q.LatestSnapshot(ctx, id); err == nil {
+		t.Fatal("LatestSnapshot of a silent host succeeded")
+	}
+
+	posted := sampleReport(time.Now().Add(-time.Minute).Truncate(time.Second))
+	if _, err := s.InsertReports(ctx, id, []report.Report{posted}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := q.LatestSnapshot(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Host.Hostname != "web-01" || snap.Host.Kernel != "6.8.0" || snap.Host.CPUCount != 4 {
+		t.Errorf("host = %+v", snap.Host)
+	}
+	if snap.Host.Uptime != 500*time.Second {
+		t.Errorf("uptime = %v", snap.Host.Uptime)
+	}
+	if snap.CPU.Busy != posted.CPU.Mean {
+		t.Errorf("cpu busy = %v, want the report mean %v", snap.CPU.Busy, posted.CPU.Mean)
+	}
+	if snap.Load.One != 1.5 || snap.Load.Fifteen != 0 {
+		t.Errorf("load = %+v", snap.Load)
+	}
+	if snap.Memory.Total != 8<<30 || snap.Memory.Used != 2 {
+		t.Errorf("memory = %+v", snap.Memory)
+	}
+	if len(snap.Networks) != 2 || snap.Networks[0].RxRate != 2 || !snap.Networks[0].Up {
+		t.Errorf("networks = %+v", snap.Networks)
+	}
+	if len(snap.Mounts) != 1 || snap.Mounts[0].Free != 5 {
+		t.Errorf("mounts = %+v", snap.Mounts)
+	}
+	if len(snap.Processes) != 2 || snap.Processes[0].CPU != 7 || snap.Processes[0].Cmdline != "postgres -D /data" {
+		t.Errorf("processes = %+v", snap.Processes)
+	}
+	if len(snap.Containers) != 1 || snap.Containers[0].MemPct == 0 {
+		t.Errorf("containers = %+v", snap.Containers)
+	}
+	if snap.ContainerRuntime != "docker" {
+		t.Errorf("runtime = %q", snap.ContainerRuntime)
+	}
+	if !snap.Taken.Equal(posted.End) {
+		t.Errorf("taken = %v, want %v", snap.Taken, posted.End)
+	}
+
+	// Sensors never cross the wire; the sample report also declared them
+	// absent itself, and the two must not double up.
+	if !snap.IsAbsent(metrics.FieldSensors) {
+		t.Error("sensors not absent")
+	}
+	if n := len(snap.Absent); n != 1 {
+		t.Errorf("absent = %v, want the one deduplicated entry", snap.Absent)
+	}
+	if len(snap.PerCPU) != 0 || len(snap.Sensors) != 0 {
+		t.Error("per-core or sensor data fabricated from nothing")
 	}
 }

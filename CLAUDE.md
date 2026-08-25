@@ -53,11 +53,13 @@ snapshots to what goes over the wire.
   else consumes them. Test with `go test ./cmd/gaze-agent`.
 - `cmd/gaze-server` — ingest endpoint, roll-up sweep, the web front end
   (login, setup, host pages, server-rendered SVG graphs — no JavaScript),
-  and the `enroll` and `admin reset` subcommands. Needs `GAZE_KEY` in the
-  environment. Ships as a container image (`Dockerfile`, `compose.yml`),
-  never a release asset. Until `hammondus/mfa` is published, building needs
-  the git-ignored `go.work` (see the note in go.mod); the Docker build does
-  not work yet.
+  the SSH TUI (`-ssh-addr`, off by default: pubkey-only auth against an
+  authorized_keys file, the fleet list, and the same `ui.Model` the local
+  binary renders, fed by `query.LatestSnapshot`), and the `enroll` and
+  `admin reset` subcommands. Needs `GAZE_KEY` in the environment. Ships as
+  a container image (`Dockerfile`, `compose.yml`), never a release asset.
+  Until `hammondus/mfa` is published, building needs the git-ignored
+  `go.work` (see the note in go.mod); the Docker build does not work yet.
 - `internal/store` — the server's schema, forward-only migrations, and every
   write: enrolment, ingest, roll-up, retention. SQLite through
   `modernc.org/sqlite`, the server's one storage dependency.

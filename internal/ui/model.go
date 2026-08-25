@@ -57,9 +57,20 @@ type snapshotMsg metrics.Snapshot
 // tickMsg schedules the next collection.
 type tickMsg struct{}
 
+// Source produces the next snapshot to draw. Locally it is
+// (*metrics.Collector).Collect; the server's SSH front end supplies one
+// that reconstructs a snapshot from stored reports instead. The model
+// neither knows nor cares which — that is the split that lets one
+// renderer serve both, per "The collector is one process; presentation is
+// swappable, not separate" in DESIGN-DECISIONS.md.
+//
+// Calls are chained, never concurrent, so a Source needs no locking of
+// its own beyond what it already had.
+type Source func(context.Context) metrics.Snapshot
+
 // Model is the Bubble Tea model for the dashboard.
 type Model struct {
-	col      *metrics.Collector
+	source   Source
 	snap     metrics.Snapshot
 	interval time.Duration
 
@@ -94,9 +105,9 @@ type Model struct {
 // memory, and on a typical host outnumber everything you started by an order
 // of magnitude, so showing them by default buries the process table. The
 // context line always reports how many are hidden, and K brings them back.
-func New(col *metrics.Collector, interval time.Duration) Model {
+func New(source Source, interval time.Duration) Model {
 	return Model{
-		col:        col,
+		source:     source,
 		interval:   interval,
 		sort:       sortCPU,
 		hideKernel: true,
@@ -121,13 +132,19 @@ func (m Model) Init() tea.Cmd { return m.collect() }
 // time, which the collector requires, and means a machine too slow to keep up
 // refreshes less often instead of queueing work it will never finish.
 func (m Model) collect() tea.Cmd {
-	col := m.col
+	src := m.source
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 		defer cancel()
-		return snapshotMsg(col.Collect(ctx))
+		return snapshotMsg(src(ctx))
 	}
 }
+
+// InputCaptured reports whether the model currently takes every key for
+// itself — the filter prompt is open. A wrapper that reuses this model
+// inside a larger program (the SSH front end's host list) must not treat
+// q as "go back" while a filter is being typed.
+func (m Model) InputCaptured() bool { return m.typing }
 
 // tick schedules the next collection.
 func (m Model) tick() tea.Cmd {

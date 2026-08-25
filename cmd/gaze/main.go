@@ -61,7 +61,7 @@ func main() {
 	})
 
 	p := tea.NewProgram(
-		ui.New(col, *interval),
+		ui.New(col.Collect, *interval),
 		tea.WithAltScreen(),       // leave the scrollback intact on exit
 		tea.WithMouseCellMotion(), // wheel scrolling in the process list
 	)

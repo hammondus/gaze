@@ -325,11 +325,11 @@ Bubble Tea and Lip Gloss bring about twenty modules between them.
 
 State the footprint per binary, not per repository. `gaze-agent` has no
 external dependencies at all. `gaze-server` carries SQLite, `mfa`,
-`golang.org/x/crypto` (Argon2 now, SSH at stage 6), and `rsc.io/qr` — the
-mailer arrives at stage 7, and Bubble Tea and Lip Gloss through `ui` at
-stage 6. `gaze` carries only Bubble Tea and Lip Gloss, same as before `ui`
-was split out; it just imports them one package away rather than directly.
-`make release` is where the footprint is worth checking, not `go.sum`.
+`golang.org/x/crypto` (Argon2 and SSH), `rsc.io/qr`, and — through `ui` —
+Bubble Tea and Lip Gloss; the mailer arrives at stage 7. `gaze` carries
+only Bubble Tea and Lip Gloss, same as before `ui` was split out; it just
+imports them one package away rather than directly. `make release` is
+where the footprint is worth checking, not `go.sum`.
 
 The alternative is an alt-screen, raw mode, and ANSI by hand, in under a
 hundred lines. What Bubble Tea supplies for the extra weight is key decoding,
@@ -1308,6 +1308,43 @@ because a browser session is bearer-token-shaped and reachable by anyone who
 finds the URL; an SSH session is neither. Requiring MFA here as well would add
 a second factor to a login that is already stronger than the thing MFA
 usually protects.
+
+Decisions from building it, recorded rather than rediscovered:
+
+- **The split in `ui` is one function type.** `ui.New` takes a
+  `Source func(context.Context) metrics.Snapshot` instead of a
+  `*metrics.Collector`; the local binary passes `col.Collect` and the
+  server passes a closure over `query.LatestSnapshot`. Collections stay
+  chained exactly as before — the model neither knows nor cares whether a
+  "collection" reads `/proc` or SQLite. Anything heavier (an interface, a
+  package split) would have been structure for a second caller that a
+  method value already serves.
+- **A session lands on a fleet list, and q means back before it means
+  disconnect.** The dashboard is per-host; the done-when asks for every
+  reporting host. So the root model is a small host list, and enter nests
+  the ordinary `ui.Model` inside it. The wrapper claims exactly one key
+  from the dashboard — q, remapped from quit to back — and asks
+  `Model.InputCaptured` first, so q typed into the filter prompt stays a
+  letter. Everything else is forwarded untouched.
+- **The colour profile is forced, not detected.** The server's stdout is a
+  container log, so termenv detection would strip every colour from every
+  session. The clients are real terminals on the other end of ssh;
+  ANSI-256 with the dark palette is assumed, which is the environment the
+  theme was designed on. Reading the session's TERM would only add a way
+  to get it wrong.
+- **The allow-list is re-read per handshake** and a malformed line refuses
+  the whole file rather than quietly shrinking it to its readable prefix.
+  Revoking a key must not need a restart, and a truncated allow-list that
+  still parses is indistinguishable from a deliberate one.
+- **The pty is required before the shell.** A session that never sent
+  pty-req has no dimensions to draw into, so the shell request is refused
+  instead of rendering an 80x24 guess into a pipe — `ssh host` with a
+  command, scripts, and sftp all land there, and none of them wants a
+  full-screen frame.
+- **A host with nothing stored renders as a collector error**, in the
+  footer, exactly like a failing collector locally: "errors do not clear
+  the screen" already covers the case, and a screen of zeros would read
+  as an idle machine rather than an absent one.
 
 ## Alerting has two evaluation paths, and one of them is a timer
 

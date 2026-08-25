@@ -635,7 +635,7 @@ func TestLiveFrame(t *testing.T) {
 	col := metrics.New(metrics.Options{})
 	time.Sleep(500 * time.Millisecond) // let the counters move so rates are real
 
-	m := New(col, time.Second)
+	m := New(col.Collect, time.Second)
 	m.width, m.height, m.ready = 120, 40, true
 	m.snap = metrics.Snapshot(collectOnce(t, col))
 	m.record()
