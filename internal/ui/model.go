@@ -774,7 +774,11 @@ func panelRows(n, cols, budget int) (int, bool) {
 // processes renders the process table into a column of the given size.
 func (m Model) processes(w, rows int) string {
 	procs := filterProcesses(m.snap.Processes, m.filter, m.sort, m.hideKernel)
-	lines, _ := procTable.render(procs, w, rows, int(m.sort), m.cursor, m.offset)
+	t := procTable
+	if m.snap.IsAbsent(metrics.FieldProcessSwap) {
+		t = t.withAbsent("SWAP")
+	}
+	lines, _ := t.render(procs, w, rows, int(m.sort), m.cursor, m.offset)
 	return strings.Join(lines, "\n")
 }
 

@@ -594,6 +594,29 @@ func TestRenderDemo(t *testing.T) {
 	t.Log("\n" + demoModel(120, 40).View())
 }
 
+// TestAbsentFieldsRenderAsDash covers Snapshot.Absent: a field the running
+// platform could not supply renders as a dash, where a zero would claim a
+// measurement nobody took. The Linux collector never sets Absent, so this is
+// the only place the path runs until a second platform exists.
+func TestAbsentFieldsRenderAsDash(t *testing.T) {
+	lipgloss.SetColorProfile(0)
+	// Wide enough that the main column keeps the SWAP column beside the
+	// sidebar; at 120 the column is dropped before absence could show.
+	m := demoModel(200, 60)
+	if !strings.Contains(m.View(), "340M") {
+		t.Fatal("the demo frame no longer shows firefox's 340M of swap; update this test's expectations with it")
+	}
+
+	m.snap.Absent = []metrics.Field{metrics.FieldProcessSwap}
+	frame := m.View()
+	if strings.Contains(frame, "340M") {
+		t.Error("the SWAP column shows a value while the field is absent")
+	}
+	if !strings.Contains(frame, "SWAP") {
+		t.Error("the SWAP column was dropped; an absent field renders a dash, it does not vanish")
+	}
+}
+
 // TestLiveFrame collects from the running kernel and renders a frame.
 //
 // It is the end-to-end check the fixture tests cannot be: it proves the

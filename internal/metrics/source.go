@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"io"
 	"io/fs"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -13,17 +12,13 @@ import (
 // which points at the real /proc and /sys. Tests point at fixture directories,
 // which is why every parser below takes a Source or a reader rather than a
 // hard-coded path.
+//
+// NewSource is the platform boundary, defined in collector_linux.go and
+// collector_unsupported.go. Everything else in this package is free of build
+// constraints, so the fixture tests run on any platform.
 type Source struct {
 	Proc fs.FS
 	Sys  fs.FS
-}
-
-// NewSource returns a Source reading the running kernel.
-func NewSource() Source {
-	return Source{
-		Proc: os.DirFS("/proc"),
-		Sys:  os.DirFS("/sys"),
-	}
 }
 
 // open returns a reader for a path relative to the given filesystem. Callers

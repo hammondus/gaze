@@ -116,7 +116,7 @@ does not prove who built the release.
 To build from source, you need Go 1.26 or later:
 
 ```
-go install github.com/hammondus/gaze@latest
+go install github.com/hammondus/gaze/cmd/gaze@latest
 ```
 
 To build the release artifacts yourself, run `make release`.

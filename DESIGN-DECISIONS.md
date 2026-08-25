@@ -787,6 +787,15 @@ under build constraints, with `Snapshot` as the platform-neutral contract
 between them. Only Linux is implemented. There is no Windows support and none is
 scheduled.
 
+The boundary is thinner than those file names suggest, and deliberately so:
+it is `NewSource`, the one constructor that knows how to observe the running
+machine. The `Collector` machinery cannot carry a build constraint, because
+the fixture tests drive it on macOS through `NewWithSource` — constraining it
+would end the macOS edit-test loop that the next section exists to protect.
+On a platform with no implementation, `NewSource` returns a source whose
+every read fails with an error naming the platform, so the failure lands in
+`Snapshot.Errs` as one clear sentence rather than as a missing `/proc`.
+
 The boundary is drawn anyway because the cost is asymmetric. Drawn now, while
 one platform fills it, it is a file split and a build tag. Drawn later, after an
 agent and a server depend on the package, it is a refactor of everything that

@@ -7,7 +7,10 @@
 // layer, in fs_linux.go, is Linux-only.
 package metrics
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Snapshot is one complete observation of the system. Every rate it contains
 // is already computed against the previous observation, so a consumer renders
@@ -40,10 +43,39 @@ type Snapshot struct {
 	// reported as one.
 	ContainersDisabled bool
 
+	// Absent names the fields the running platform cannot supply. A consumer
+	// renders them as a dash and a store records NULL, never zero: "this host
+	// had no swap in use" and "nobody could ask" are different facts, and once
+	// a zero is written the difference cannot be recovered.
+	//
+	// The Linux collector supplies everything, so it leaves Absent empty. The
+	// field exists now because it has to exist before the first row reaches a
+	// database, not after a second platform appears.
+	Absent []Field
+
 	// Errs holds the failure of any collector that could not run. One
 	// unreadable source must not cost you the rest of the screen, so a
 	// collector records its error here and leaves its field zero.
 	Errs []error
+}
+
+// Field names a snapshot field for Snapshot.Absent. The constants below are
+// the fields a platform is known to be unable to supply — per the estimate in
+// DESIGN-DECISIONS, Windows publishes no per-process swap figure, no
+// vendor-independent sensor interface, and no unprivileged read of another
+// process's command line. Add a constant when a collector needs to declare a
+// new one.
+type Field string
+
+const (
+	FieldProcessSwap    Field = "process.swap"
+	FieldProcessCmdline Field = "process.cmdline"
+	FieldSensors        Field = "sensors"
+)
+
+// IsAbsent reports whether the running platform could not supply a field.
+func (s Snapshot) IsAbsent(f Field) bool {
+	return slices.Contains(s.Absent, f)
 }
 
 // Host identifies the machine and how long it has been up.

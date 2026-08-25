@@ -43,7 +43,8 @@ tests need Linux.
 Two packages share one type, `metrics.Snapshot`. The collector decides what the
 numbers are; the display decides what they look like.
 
-- `main.go` — flags, start-up checks, `--update`/`--check-update` handling.
+- `cmd/gaze/main.go` — flags, start-up checks, `--update`/`--check-update`
+  handling.
 - `internal/metrics` — collection from `/proc`, `/sys`, and the container
   runtime socket. **Standard library only; do not add a dependency here.**
 - `internal/ui` — Bubble Tea model, panels, tables, formatting. Bubble Tea and

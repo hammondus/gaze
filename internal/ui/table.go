@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -34,6 +35,22 @@ type table[T any] struct {
 	cols    []column[T]
 	flex    column[T]
 	minFlex int
+}
+
+// withAbsent returns a copy of the table whose named columns render a dash in
+// every row. It is how a table honours Snapshot.Absent: the platform could not
+// supply the value, and a dash says so where a zero would lie.
+func (t table[T]) withAbsent(labels ...string) table[T] {
+	cols := make([]column[T], len(t.cols))
+	copy(cols, t.cols)
+	for i := range cols {
+		if slices.Contains(labels, cols[i].label) {
+			cols[i].value = func(T) string { return "-" }
+			cols[i].style = func(T) lipgloss.Style { return styFaint }
+		}
+	}
+	t.cols = cols
+	return t
 }
 
 // active returns the columns that fit and the width left for the flexible one.

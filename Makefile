@@ -25,7 +25,7 @@ RUNIMG := alpine:3.20
 
 .PHONY: build
 build: ## Compile for the dev machine. Checks it builds; it will not run here.
-	$(GOENV) go build -ldflags "$(LDFLAGS)" -o $(BIN) .
+	$(GOENV) go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/gaze
 
 .PHONY: test
 test: ## Vet and run the tests, including the linux/arm64 build.
@@ -75,11 +75,11 @@ publish: release ## Attach the artifacts to a GitHub release for the current tag
 # the metrics come from /proc.
 $(DIST)/$(BIN)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
 	@mkdir -p $(DIST)
-	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ .
+	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze
 
 .PHONY: install
 install: ## Install into GOBIN on this machine.
-	$(GOENV) go install -ldflags "$(LDFLAGS)" .
+	$(GOENV) go install -ldflags "$(LDFLAGS)" ./cmd/gaze
 
 .PHONY: clean
 clean: ## Remove build output.

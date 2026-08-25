@@ -10,7 +10,7 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stage 1 not started. Everything before it is the existing TUI.
+**Status:** stage 1 done. Stage 2 not started.
 
 ---
 
@@ -21,13 +21,13 @@ exactly as it does now, and the existing tests pass untouched. Shared packages
 stay under `internal/` — see "Everything stays under internal" in
 DESIGN-DECISIONS.
 
-- [ ] Move `main.go` to `cmd/gaze/`.
-- [ ] Split the collector into `collector_linux.go` and
+- [x] Move `main.go` to `cmd/gaze/`.
+- [x] Split the collector into `collector_linux.go` and
       `collector_unsupported.go` under build constraints, with only Linux
       implemented.
-- [ ] Add `Snapshot.Absent`, empty on Linux, and render it as a dash in the TUI.
-- [ ] Update the README `go install` path and the `Makefile` package paths.
-- [ ] Confirm `make test`, `make frame`, and `make run` behave as before.
+- [x] Add `Snapshot.Absent`, empty on Linux, and render it as a dash in the TUI.
+- [x] Update the README `go install` path and the `Makefile` package paths.
+- [x] Confirm `make test`, `make frame`, and `make run` behave as before.
 
 **Done when** a rendered frame is byte-identical to one from the previous
 commit, and `go vet ./...` passes for `linux/arm64`.
