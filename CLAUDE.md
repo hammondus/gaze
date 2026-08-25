@@ -40,13 +40,18 @@ tests need Linux.
 
 ## Architecture
 
-Two packages share one type, `metrics.Snapshot`. The collector decides what the
-numbers are; the display decides what they look like.
+`metrics.Snapshot` is the shared type: the collector decides what the numbers
+are, the display decides what they look like, and `report` reduces a run of
+snapshots to what goes over the wire.
 
 - `cmd/gaze/main.go` — flags, start-up checks, `--update`/`--check-update`
   handling.
 - `internal/metrics` — collection from `/proc`, `/sys`, and the container
   runtime socket. **Standard library only; do not add a dependency here.**
+- `internal/report` — the wire contract between the agent and the server:
+  `Report`, `Directive`, and the reduction from snapshots. **Standard library
+  only.** Shipped fields are never renamed; the golden fixture in
+  `internal/report/testdata` fails on any change to the JSON.
 - `internal/ui` — Bubble Tea model, panels, tables, formatting. Bubble Tea and
   Lip Gloss are the project's entire external dependency footprint, pinned to
   their v1 lines.

@@ -1,0 +1,337 @@
+{
+  "schema": 1,
+  "host": {
+    "hostname": "web-01",
+    "kernel": "6.8.0-45-generic",
+    "cpus": 4,
+    "uptime_s": 7862450
+  },
+  "start": "2026-08-25T12:00:00Z",
+  "end": "2026-08-25T12:00:50Z",
+  "samples": 6,
+  "cpu": {
+    "min": 12.5,
+    "max": 96,
+    "mean": 32.83
+  },
+  "load1": {
+    "min": 1,
+    "max": 1.5,
+    "mean": 1.25
+  },
+  "load5": {
+    "min": 0.8,
+    "max": 0.8,
+    "mean": 0.8
+  },
+  "load15": {
+    "min": 0.6,
+    "max": 0.6,
+    "mean": 0.6
+  },
+  "memory": {
+    "total": 8589934592,
+    "used": {
+      "min": 5368709120,
+      "max": 5892997120,
+      "mean": 5630853120
+    }
+  },
+  "swap": {
+    "total": 4294967296,
+    "used": {
+      "min": 1073741824,
+      "max": 1073741824,
+      "mean": 1073741824
+    }
+  },
+  "networks": [
+    {
+      "name": "eth0",
+      "rx": {
+        "min": 0,
+        "max": 5242880,
+        "mean": 2621440
+      },
+      "tx": {
+        "min": 307200,
+        "max": 307200,
+        "mean": 307200
+      },
+      "up": true
+    },
+    {
+      "name": "wg0",
+      "rx": {
+        "min": 20480,
+        "max": 20480,
+        "mean": 20480
+      },
+      "tx": {
+        "min": 15360,
+        "max": 15360,
+        "mean": 15360
+      },
+      "up": true
+    },
+    {
+      "name": "lo",
+      "rx": {
+        "min": 1024,
+        "max": 1024,
+        "mean": 1024
+      },
+      "tx": {
+        "min": 1024,
+        "max": 1024,
+        "mean": 1024
+      },
+      "up": true
+    }
+  ],
+  "disks": [
+    {
+      "name": "nvme0n1",
+      "read": {
+        "min": 4194304,
+        "max": 4194304,
+        "mean": 4194304
+      },
+      "write": {
+        "min": 0,
+        "max": 10485760,
+        "mean": 5242880
+      },
+      "read_ops": {
+        "min": 120,
+        "max": 120,
+        "mean": 120
+      },
+      "write_ops": {
+        "min": 80,
+        "max": 80,
+        "mean": 80
+      }
+    },
+    {
+      "name": "sda",
+      "read": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "write": {
+        "min": 524288,
+        "max": 524288,
+        "mean": 524288
+      },
+      "read_ops": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "write_ops": {
+        "min": 12,
+        "max": 12,
+        "mean": 12
+      }
+    }
+  ],
+  "mounts": [
+    {
+      "device": "/dev/nvme0n1p2",
+      "path": "/",
+      "fstype": "ext4",
+      "total": 268435456000,
+      "used": 193273528320,
+      "percent": 76.4
+    },
+    {
+      "device": "/dev/nvme0n1p1",
+      "path": "/boot",
+      "fstype": "vfat",
+      "total": 1073741824,
+      "used": 209715200,
+      "percent": 19.5
+    },
+    {
+      "device": "/dev/sda1",
+      "path": "/data",
+      "fstype": "xfs",
+      "total": 4398046511104,
+      "used": 3298534883328,
+      "percent": 75
+    },
+    {
+      "device": "tank/backup",
+      "path": "/backup",
+      "fstype": "zfs",
+      "total": 8796093022208,
+      "used": 2199023255552,
+      "percent": 25
+    },
+    {
+      "device": "192.168.1.9:/media",
+      "path": "/mnt/media",
+      "fstype": "nfs4",
+      "total": 13194139533312,
+      "used": 9895604649984,
+      "percent": 75
+    }
+  ],
+  "procs": {
+    "total": 412,
+    "running": 3,
+    "sleeping": 400,
+    "zombie": 1,
+    "threads": 1183,
+    "kernel": 180
+  },
+  "top": [
+    {
+      "pid": 2841,
+      "name": "postgres",
+      "user": "postgres",
+      "cpu": {
+        "min": 18.2,
+        "max": 18.2,
+        "mean": 18.2
+      },
+      "rss": 2147483648,
+      "cmdline": "postgres: writer process"
+    },
+    {
+      "pid": 1102,
+      "name": "firefox",
+      "user": "craig",
+      "cpu": {
+        "min": 11.7,
+        "max": 11.7,
+        "mean": 11.7
+      },
+      "rss": 1572864000,
+      "swap": 356515840,
+      "cmdline": "/usr/lib/firefox/firefox"
+    },
+    {
+      "pid": 331,
+      "name": "systemd-journald",
+      "user": "root",
+      "cpu": {
+        "min": 2.2,
+        "max": 2.2,
+        "mean": 2.2
+      },
+      "rss": 71303168,
+      "swap": 12582912,
+      "cmdline": "/usr/lib/systemd/systemd-journald"
+    },
+    {
+      "pid": 7734,
+      "name": "go",
+      "user": "craig",
+      "cpu": {
+        "min": 1.4,
+        "max": 1.4,
+        "mean": 1.4
+      },
+      "rss": 367001600,
+      "cmdline": "go build ./..."
+    },
+    {
+      "pid": 412,
+      "name": "java",
+      "user": "app",
+      "cpu": {
+        "min": 0.1,
+        "max": 0.1,
+        "mean": 0.1
+      },
+      "rss": 3221225472,
+      "cmdline": "java -Xmx4g -jar server.jar"
+    }
+  ],
+  "container_runtime": "docker",
+  "containers": [
+    {
+      "name": "web",
+      "image": "nginx:1.27",
+      "state": "running",
+      "cpu": {
+        "min": 2,
+        "max": 7,
+        "mean": 4.5
+      },
+      "mem": 125829120,
+      "mem_limit": 536870912
+    },
+    {
+      "name": "db",
+      "image": "postgres:16",
+      "state": "running",
+      "cpu": {
+        "min": 8.5,
+        "max": 8.5,
+        "mean": 8.5
+      },
+      "mem": 943718400,
+      "mem_limit": 2147483648
+    },
+    {
+      "name": "cache",
+      "image": "redis:7",
+      "state": "running",
+      "cpu": {
+        "min": 0.4,
+        "max": 0.4,
+        "mean": 0.4
+      },
+      "mem": 62914560,
+      "mem_limit": 268435456
+    },
+    {
+      "name": "queue",
+      "image": "rabbitmq:3.13",
+      "state": "running",
+      "cpu": {
+        "min": 1.1,
+        "max": 1.1,
+        "mean": 1.1
+      },
+      "mem": 209715200,
+      "mem_limit": 1073741824
+    },
+    {
+      "name": "metrics",
+      "image": "prom/prometheus:v2.53",
+      "state": "running",
+      "cpu": {
+        "min": 0.9,
+        "max": 0.9,
+        "mean": 0.9
+      },
+      "mem": 419430400,
+      "mem_limit": 1073741824
+    },
+    {
+      "name": "nightly-backup",
+      "image": "restic/restic:0.17",
+      "state": "exited",
+      "cpu": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      }
+    },
+    {
+      "name": "migrate-once",
+      "image": "flyway/flyway:10",
+      "state": "exited",
+      "cpu": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      }
+    }
+  ]
+}

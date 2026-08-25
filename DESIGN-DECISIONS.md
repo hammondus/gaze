@@ -700,6 +700,37 @@ processes rather than all of them is the single biggest sizing decision in the
 system: a row per process per interval is what makes monitoring databases
 enormous, and it is almost never what you go back and read.
 
+Four decisions from building it, recorded here rather than rediscovered:
+
+- **`From` takes the sample slice, not one snapshot.** The signature is
+  `From([]metrics.Snapshot, Options) Report`. The alternative was reducing
+  each snapshot and merging finished reports, and it loses twice: minimum,
+  maximum, and mean need the series, and the busiest processes can only be
+  ranked fairly by matching PIDs across samples. Holding a report interval's
+  snapshots in memory costs the agent about a megabyte. A name missing from
+  one sample counts as zero for it, which is what it contributed then; a PID
+  recycled within the one-minute span folds two processes into one row, which
+  is bounded enough not to be worth carrying kernel start times to prevent.
+- **Fast movers aggregate; slow movers carry their last observation.** CPU,
+  load, memory and swap use, and the per-interface, per-device, and
+  per-container rates are `Stat{Min, Max, Mean}`. Mount capacity and the
+  process counts are the latest reading: over a minute an envelope on those
+  is three copies of nearly the same number, and the interesting extremes
+  show up in load and CPU anyway.
+- **Containers are in the report.** The original reduction list left them
+  out, but stage 5 renders container names on the host pages, so they have to
+  arrive somehow. Name, image, state, aggregated CPU, and memory; the
+  runtime name and the disabled flag travel alongside, because "switched
+  off", "no runtime", and "none running" must stay three different facts on
+  the server too.
+- **Wire figures round to two decimals.** A mean that is a full float64
+  doubles the bytes of every figure it carries, and nothing downstream needs
+  micro-percent.
+
+The demo report — six samples of a host with three interfaces, two disks,
+five mounts, seven containers, and a full process table — is 3.4 KB of JSON
+and about 1.5 KB gzipped, against the 4 KB budget in ROADMAP stage 2.
+
 `Report` carries a `Schema` integer. A server must accept an older schema than
 it knows, because an agent updates when it is told to, not when the server does.
 

@@ -10,7 +10,7 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stage 1 done. Stage 2 not started.
+**Status:** stages 1 and 2 done. Stage 3 not started.
 
 ---
 
@@ -36,17 +36,18 @@ commit, and `go vet ./...` passes for `linux/arm64`.
 
 The type the agent sends and the server stores. No network code yet.
 
-- [ ] `internal/report` package: `Report`, `Directive`, and a `Schema`
+- [x] `internal/report` package: `Report`, `Directive`, and a `Schema`
       constant.
-- [ ] `report.From(metrics.Snapshot, Options) Report`, reducing to scalars,
-      per-interface and per-device rates, mounts, process counts, and the top
-      few processes.
-- [ ] Aggregation across samples: minimum, maximum, and mean per field.
-- [ ] `Report` carries the span of sample times it aggregates, from the
+- [x] `report.From([]metrics.Snapshot, Options) Report`, reducing to scalars,
+      per-interface and per-device rates, mounts, process counts, containers,
+      and the top few processes. It takes the sample slice rather than one
+      snapshot, because aggregation needs the series — see DESIGN-DECISIONS.
+- [x] Aggregation across samples: minimum, maximum, and mean per field.
+- [x] `Report` carries the span of sample times it aggregates, from the
       agent's clock. See "Reports carry the agent's clock" in
       DESIGN-DECISIONS.
-- [ ] Process command lines excluded by default, behind an opt-in.
-- [ ] Round-trip tests, and a golden JSON fixture to catch accidental schema
+- [x] Process command lines excluded by default, behind an opt-in.
+- [x] Round-trip tests, and a golden JSON fixture to catch accidental schema
       changes.
 
 **Done when** a `Report` built from the demo snapshot is under 4 KB of JSON, and
