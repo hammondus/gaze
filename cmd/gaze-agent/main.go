@@ -11,11 +11,13 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 	"time"
 
 	"github.com/hammondus/gaze/internal/metrics"
+	"github.com/hammondus/gaze/internal/update"
 )
 
 // version is set at build time with -ldflags "-X main.version=…".
@@ -29,6 +31,7 @@ func main() {
 	containers := flag.Bool("containers", true, "collect container statistics from the Docker or Podman socket")
 	cmdlines := flag.Bool("cmdlines", false, "include process command lines in reports; they can carry secrets, so this is a local choice no server can switch on")
 	allowRemoteConfig := flag.Bool("allow-remote-config", false, "let the server change the intervals and collection settings")
+	allowRemoteUpdate := flag.Bool("allow-remote-update", false, "let the server trigger a self-update to the latest release; the directive carries no version and no URL")
 	procPath := flag.String("procfs", "/proc", "`path` to the proc filesystem")
 	sysPath := flag.String("sysfs", "/sys", "`path` to the sys filesystem")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -81,6 +84,8 @@ func main() {
 		hostID:            hostID(),
 		cmdlines:          *cmdlines,
 		allowRemoteConfig: *allowRemoteConfig,
+		allowRemoteUpdate: *allowRemoteUpdate,
+		selfUpdate:        selfUpdate,
 		newCollector:      newCollector,
 		cfg: config{
 			sample:        *sample,
@@ -96,6 +101,34 @@ func main() {
 	log.Printf("gaze-agent %s: sampling every %s, reporting to %s every %s (offset %s)",
 		buildVersion(), *sample, base.Redacted(), *reportEvery, a.offset(*reportEvery).Round(time.Second))
 	a.run(ctx)
+}
+
+// selfUpdate replaces this executable with the latest release and re-execs
+// into it — the same fetch-latest-and-verify path `gaze --update` runs by
+// hand, pointed at the agent's own release asset. Re-exec rather than exit:
+// the unit ships Restart=on-failure, so a clean exit would stay down, and
+// exec works the same without systemd at all. Linux keeps the running
+// inode alive after the rename, so replacing a live binary is safe.
+func selfUpdate() error {
+	up, err := update.New(buildVersion())
+	if err != nil {
+		return err
+	}
+	up.Asset = "gaze-agent-linux-" + runtime.GOARCH
+
+	latest, differs, err := up.Available()
+	if err != nil {
+		return err
+	}
+	if !differs {
+		log.Printf("self-update: already at the published version %s", latest)
+		return nil
+	}
+	if err := up.Apply(os.Stderr); err != nil {
+		return err
+	}
+	log.Printf("self-update: restarting into %s", latest)
+	return syscall.Exec(up.Target, os.Args, os.Environ())
 }
 
 // hostID is a stable identifier for deriving this host's reporting offset.

@@ -9,10 +9,11 @@ linux/arm64 and linux/amd64, and has no runtime configuration.
 Before making a non-obvious choice, read `DESIGN-DECISIONS.md`. It records why
 each alternative lost, and it is the file to update when you make such a choice.
 
-`ROADMAP.md` lists the stages the project is being built in, and which are done.
-gaze is growing from one TUI into three binaries — the TUI, an agent, and a
-server that stores reports from several hosts. Most of that is not written yet.
-Check the roadmap before assuming a package exists.
+`ROADMAP.md` lists the stages the project is being built in, and which are
+done. gaze is three binaries: the TUI, an agent, and a server that stores
+reports from several hosts and presents them over HTTP and SSH. Stages 1 to
+8 are built; check the roadmap for what is not (Windows collection, and the
+`hammondus/mfa` publication step).
 
 ## Commands
 

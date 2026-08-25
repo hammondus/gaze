@@ -158,11 +158,11 @@ To read a captured pseudo-filesystem instead of the running kernel, point
 
 ## The agent
 
-`gaze-agent` posts the same measurements to a central `gaze-server`, which is
-still being built — see [ROADMAP.md](ROADMAP.md). The agent collects every 10
-seconds and reports once a minute, sending the minimum, maximum, and mean of
-each figure, so a spike between reports still arrives. During a server outage
-it queues about an hour of reports and fills the gap on reconnection.
+`gaze-agent` posts the same measurements to a central `gaze-server`. It
+collects every 10 seconds and reports once a minute, sending the minimum,
+maximum, and mean of each figure, so a spike between reports still arrives.
+During a server outage it queues about an hour of reports and fills the gap
+on reconnection.
 
 ```
 gaze-agent -server https://gaze.example.net -token-file /etc/gaze/token
@@ -177,11 +177,19 @@ gaze-agent -server https://gaze.example.net -token-file /etc/gaze/token
 | `-containers` | `true` | Collect container statistics |
 | `-cmdlines` | `false` | Include process command lines, which can carry secrets. A local choice; no server can switch it on |
 | `-allow-remote-config` | `false` | Let the server change intervals and collection settings |
+| `-allow-remote-update` | `false` | Let the server trigger a self-update to the latest release. The directive carries no version and no URL |
+
+The two `allow` flags are separate consents, both off by default. An agent
+that receives a directive its flags forbid declines it and says why on its
+next report, so the server's host list shows "declined" rather than an
+agent that never seems to catch up. Command-line collection is never
+remotely settable: `-cmdlines` stays a local choice.
 
 To run it as a service, start from
 [contrib/gaze-agent.service](contrib/gaze-agent.service): it documents the
-unprivileged user, the token file, and what joining the `docker` group for
-container statistics really grants.
+unprivileged user, the token file, what joining the `docker` group for
+container statistics really grants, and what enabling remote update does
+to the unit's hardening.
 
 ## The server
 
@@ -221,6 +229,20 @@ docker compose exec gaze-server gaze-server enroll <hostname> -db /data/gaze.db
 Both print the host's bearer token exactly once. The database stores the
 token's SHA-256, never the token. Enrolling the same host again mints a
 second token, which is how rotation works.
+
+### Managing agents
+
+Each host's page can change its agent's intervals and container
+collection, and trigger a self-update — per host, or fleet-wide from the
+host list, staggered so the agents do not all fetch from GitHub at once.
+Everything rides on the reply to the agent's next report; the server never
+opens a connection to an agent, and the agent's own `allow` flags decide
+whether it complies. The host list shows whether each change was applied,
+is still travelling, or was declined — and a declined directive names the
+flag to change.
+
+Update directives are sent only while the server itself is on the latest
+release, so an agent can never be pushed past its server's schema.
 
 ### Alerting
 

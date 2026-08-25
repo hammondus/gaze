@@ -5,7 +5,7 @@
 {{else}}
 <table class="fleet">
   <thead>
-    <tr><th>host</th><th>state</th><th>last seen</th><th class="num">cpu</th><th class="num">memory</th><th class="num">procs</th><th>agent</th></tr>
+    <tr><th>host</th><th>state</th><th>last seen</th><th class="num">cpu</th><th class="num">memory</th><th class="num">procs</th><th>agent</th><th>config</th></tr>
   </thead>
   <tbody>
   {{range .Data}}
@@ -21,9 +21,18 @@
       <td class="num">—</td><td class="num">—</td><td class="num">—</td>
       {{end}}
       <td class="dim">{{if .AgentVersion}}{{.AgentVersion}}{{else}}—{{end}}</td>
+      <td>{{if .CfgStatus}}<span class="chip {{.CfgClass}}">{{.CfgStatus}}</span>{{else}}<span class="dim">—</span>{{end}}</td>
     </tr>
   {{end}}
   </tbody>
 </table>
+
+<form method="post" action="/hosts/update-all" class="agent-form">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button>Update all agents</button>
+</form>
+<p class="dim">Asks every agent to fetch the latest release, staggered so
+they do not all hit GitHub at once. Each agent's own
+-allow-remote-update flag decides whether it complies.</p>
 {{end}}
 {{end}}

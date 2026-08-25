@@ -119,6 +119,8 @@ td a { text-decoration: none; }
 .chip.ok { background: #12301f; color: var(--accent); }
 .chip.stale { background: #33270f; color: var(--warn); }
 .chip.never { background: #22262b; color: var(--dim); }
+.chip.pending { background: #1c2740; color: var(--accent-b); }
+.chip.bad { background: #3a1720; color: var(--bad); }
 tr.stale td, tr.never td { color: var(--dim); }
 tr.stale td:first-child a { color: var(--warn); }
 
@@ -176,3 +178,28 @@ pre {
   overflow-x: auto;
 }
 .qr { background: #fff; padding: 8px; border-radius: 4px; }
+
+/* Agent management */
+.agent-form {
+  display: flex;
+  gap: 1rem;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0.2rem;
+}
+.agent-form label { display: grid; gap: 0.25rem; color: var(--dim); font-size: 0.9rem; }
+.agent-form input[type="number"] { width: 7rem; }
+select {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  color: var(--fg);
+  font: inherit;
+}
+.declined {
+  border: 1px solid var(--bad);
+  border-radius: 4px;
+  padding: 0.5rem 0.8rem;
+  color: var(--bad);
+}

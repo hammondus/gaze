@@ -77,6 +77,14 @@ type Overview struct {
 	MemTotal  uint64
 	Procs     int
 	Zombies   int
+
+	// Remote-management standing: the desired configuration generation
+	// beside the echoed one in Host.Generation, the agent's refusal text,
+	// and whether a self-update stands requested. The fleet list must show
+	// a declined directive as plainly as an applied one.
+	CfgGeneration int
+	Declined      string
+	UpdateAsked   bool
 }
 
 // Fleet returns every enrolled host with its latest raw report, in name
@@ -85,6 +93,8 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT h.id, h.name, h.kernel, h.cpus, h.agent_version, h.generation,
 		       h.schema, COALESCE(h.last_seen_at, 0),
+		       h.cfg_generation, h.declined,
+		       h.update_requested_at IS NOT NULL,
 		       r.cpu_mean, r.mem_mean, r.mem_total, r.procs, r.procs_zombie
 		FROM hosts h
 		LEFT JOIN reports r ON r.host_id = h.id AND r.tier = 0
@@ -104,6 +114,7 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 		var memTotal, procs, zombies sql.NullInt64
 		if err := rows.Scan(&o.ID, &o.Name, &o.Kernel, &o.CPUs,
 			&o.AgentVersion, &o.Generation, &o.Schema, &seen,
+			&o.CfgGeneration, &o.Declined, &o.UpdateAsked,
 			&cpu, &mem, &memTotal, &procs, &zombies); err != nil {
 			return nil, err
 		}

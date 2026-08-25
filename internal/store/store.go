@@ -296,4 +296,17 @@ CREATE TABLE alert_state (
 	mailed_at  INTEGER,
 	PRIMARY KEY (host_id, rule, instance)
 ) WITHOUT ROWID;
+`, `
+-- Stage 8: the desired remote configuration per host, beside what the
+-- agent has echoed. cfg_generation counts every change; hosts.generation
+-- (migration 1) is the agent's echo, and the two being equal is what
+-- "applied, not just sent" means. cfg_containers is NULL to leave the
+-- agent's own setting alone — NULL and "off" are different instructions.
+-- declined is the agent's own sentence for why it refused a directive.
+ALTER TABLE hosts ADD COLUMN cfg_generation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hosts ADD COLUMN cfg_sample_s INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hosts ADD COLUMN cfg_report_s INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hosts ADD COLUMN cfg_containers INTEGER;
+ALTER TABLE hosts ADD COLUMN update_requested_at INTEGER;
+ALTER TABLE hosts ADD COLUMN declined TEXT NOT NULL DEFAULT '';
 `}

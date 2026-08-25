@@ -32,11 +32,12 @@ const (
 type ingest struct {
 	store *store.Store
 	alert *alert.Alerter
+	dir   *directives
 	slots chan struct{}
 }
 
-func newIngest(s *store.Store, a *alert.Alerter) *ingest {
-	return &ingest{store: s, alert: a, slots: make(chan struct{}, ingestSlots)}
+func newIngest(s *store.Store, a *alert.Alerter, d *directives) *ingest {
+	return &ingest{store: s, alert: a, dir: d, slots: make(chan struct{}, ingestSlots)}
 }
 
 func (h *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +112,20 @@ func (h *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No directive machinery yet: stage 8 grows this reply.
-	w.WriteHeader(http.StatusNoContent)
+	// Anything the server wants changed rides on this reply; it never
+	// opens a connection to an agent. Nothing to say is a 204, and a
+	// directive failure must not fail the ingest either — the report is
+	// stored, which is the part the agent needs acknowledged.
+	dir, err := h.dir.For(r.Context(), hostID)
+	if err != nil {
+		log.Printf("directive host %d: %v", hostID, err)
+	}
+	if dir == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(dir); err != nil {
+		log.Printf("directive host %d: %v", hostID, err)
+	}
 }

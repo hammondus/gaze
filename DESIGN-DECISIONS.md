@@ -911,6 +911,40 @@ tell an agent that will never comply from one that is simply offline — both
 would show as "has not caught up" on the host list, and only one of them needs
 a person to walk over and change a flag.
 
+Stage 8 settled the mechanics, recorded rather than rediscovered:
+
+- **Configuration is re-sent until echoed, and the echo is the truth.** The
+  server keeps a desired generation per host and re-sends while the agent's
+  echoed generation differs — which covers an agent restarted with local
+  flags as well as one that never applied. "Applied" on the pages means the
+  two numbers are equal, never that a send succeeded.
+- **`Report.Declined` is a sentence, not a code.** The agent explains its
+  own refusal in words, recomputed from each directive so it clears once
+  the server stops asking for the refused thing. The server stores it
+  verbatim and the fleet list renders it as a chip beside the applied ones
+  — a declined directive must be exactly as visible.
+- **The agent updates by re-exec, not by exiting.** After the verified
+  replacement it execs its own path with its own arguments: the unit ships
+  `Restart=on-failure`, so a clean exit would stay down, and exec behaves
+  the same with no init system at all. The unit file documents the other
+  half of the cost: a binary the service user may replace, through
+  `ProtectSystem=strict`, is a deliberate loosening with its own lines.
+- **Update attempts are gated to one an hour on the agent.** The server
+  re-sends the trigger every report until the version changes, and every
+  attempt is a GitHub download — someone else's resources, not a place for
+  a minutely retry loop. The gated retries are not refusals and are not
+  echoed as declined.
+- **The server's release check is lazy and cached.** The gate reads the
+  same `/releases/latest` redirect the updater uses, only while an update
+  stands requested, at most hourly, errors included — a fleet reporting
+  every minute must not become a minutely poll of GitHub. A "dev" build
+  never equals a release tag, so a development server never sends updates.
+- **The stagger slot is derived, not drawn.** Each host's position in the
+  fifteen-minute rollout window is a hash of its id — the same argument as
+  the reporting offset: stable across restarts, so a rebooted server does
+  not reshuffle the fleet's fetch times. A request is cleared when the
+  agent reaches the latest version, however it got there.
+
 ## Each host's token is its own
 
 Every agent authenticates with its own bearer token, generated when its host

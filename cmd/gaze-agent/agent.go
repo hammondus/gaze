@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,20 +36,38 @@ type agent struct {
 	hostID            string
 	cmdlines          bool
 	allowRemoteConfig bool
+	allowRemoteUpdate bool
 
 	// newCollector builds a collector, so the sampler can swap it out when a
 	// directive toggles container collection, and tests can supply fixtures.
 	newCollector func(disableContainers bool) *metrics.Collector
+
+	// selfUpdate runs the same fetch-latest-and-verify path `gaze --update`
+	// runs by hand, then re-execs into the new binary. Injected so tests
+	// never touch the network.
+	selfUpdate func() error
 
 	mu     sync.Mutex
 	cfg    config
 	window []metrics.Snapshot
 	ring   ring
 
+	// declined says why the last directive the agent would not apply was
+	// refused; it rides every report so the server can tell "will not"
+	// from "has not yet". Recomputed per directive, so it clears itself
+	// once the server stops asking for the refused thing.
+	declined string
+
 	// lastRefused is the generation whose refusal was already logged, so a
 	// steady-state server re-sending the same directive every minute does
 	// not fill the journal with the same sentence.
 	lastRefused int
+
+	// updateStarted is when a remote update attempt last began. It gates
+	// retries to one an hour: the server re-sends the trigger every report
+	// until the version changes, and each attempt is a GitHub download —
+	// someone else's resources, not a place for a minutely retry loop.
+	updateStarted time.Time
 
 	// wake nudges the flusher when a report lands in the ring. Buffer of
 	// one: a nudge while it is already draining changes nothing.
@@ -148,6 +168,7 @@ func (a *agent) emit() {
 	window := a.window
 	a.window = nil
 	gen := a.cfg.generation
+	declined := a.declined
 	a.mu.Unlock()
 	if len(window) == 0 {
 		return
@@ -156,6 +177,7 @@ func (a *agent) emit() {
 	r := report.From(window, report.Options{Cmdlines: a.cmdlines})
 	r.Generation = gen
 	r.Version = a.version
+	r.Declined = declined
 
 	a.mu.Lock()
 	a.ring.push(r)
@@ -210,45 +232,84 @@ func (a *agent) flushLoop(ctx context.Context) {
 	}
 }
 
-// apply acts on the server's directive. Remote configuration is refused
-// unless the agent was started with -allow-remote-config; the refusal is
-// logged here and, from stage 8, echoed back so the server can tell "will
-// not" from "has not yet". A remote update needs -allow-remote-update,
-// which does not exist until stage 8, so it is always refused.
+// apply acts on the server's directive. Both halves are gated by their own
+// start flag, and each refusal is recorded in declined so the next report
+// carries it: the server must be able to tell an agent that will never
+// comply from one that is simply offline. declined is recomputed from this
+// directive alone, so it clears once the server stops asking for the
+// refused thing.
 func (a *agent) apply(d *report.Directive) {
 	if d == nil {
 		return
 	}
-	if d.Update {
-		log.Printf("server asked for a self-update; refused, remote update is not supported yet")
-	}
+	var declined []string
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if d.Generation == a.cfg.generation {
-		return
-	}
-	if !a.allowRemoteConfig {
+	switch {
+	case d.Generation == a.cfg.generation:
+		// Nothing new to apply; nothing stands refused.
+	case !a.allowRemoteConfig:
+		declined = append(declined,
+			fmt.Sprintf("configuration generation %d refused: started without -allow-remote-config", d.Generation))
 		if d.Generation != a.lastRefused {
 			a.lastRefused = d.Generation
 			log.Printf("server sent configuration generation %d; refused, started without -allow-remote-config", d.Generation)
 		}
-		return
+	default:
+		if d.SampleSeconds > 0 {
+			a.cfg.sample = max(time.Duration(d.SampleSeconds)*time.Second, time.Second)
+		}
+		if d.ReportSeconds > 0 {
+			a.cfg.report = time.Duration(d.ReportSeconds) * time.Second
+		}
+		a.cfg.report = max(a.cfg.report, a.cfg.sample)
+		if d.Containers != nil {
+			a.cfg.containersOff = !*d.Containers
+		}
+		a.cfg.generation = d.Generation
+		log.Printf("applied configuration generation %d: sample %s, report %s, containers %v",
+			d.Generation, a.cfg.sample, a.cfg.report, !a.cfg.containersOff)
+	}
+	a.mu.Unlock()
+
+	if d.Update {
+		if msg := a.handleUpdate(); msg != "" {
+			declined = append(declined, msg)
+		}
 	}
 
-	if d.SampleSeconds > 0 {
-		a.cfg.sample = max(time.Duration(d.SampleSeconds)*time.Second, time.Second)
+	a.mu.Lock()
+	a.declined = strings.Join(declined, "; ")
+	a.mu.Unlock()
+}
+
+// handleUpdate starts a self-update, or says why it will not. The download
+// runs off the flush loop — reports must keep flowing while it fetches —
+// and at most once an hour: the server re-sends the trigger every report
+// until the version changes, and each attempt spends GitHub's resources.
+func (a *agent) handleUpdate() (declined string) {
+	if !a.allowRemoteUpdate {
+		log.Printf("server asked for a self-update; refused, started without -allow-remote-update")
+		return "update refused: started without -allow-remote-update"
 	}
-	if d.ReportSeconds > 0 {
-		a.cfg.report = time.Duration(d.ReportSeconds) * time.Second
+
+	a.mu.Lock()
+	recent := time.Since(a.updateStarted) < time.Hour
+	if !recent {
+		a.updateStarted = time.Now()
 	}
-	a.cfg.report = max(a.cfg.report, a.cfg.sample)
-	if d.Containers != nil {
-		a.cfg.containersOff = !*d.Containers
+	a.mu.Unlock()
+	if recent {
+		return "" // an attempt is running or just failed; not a refusal
 	}
-	a.cfg.generation = d.Generation
-	log.Printf("applied configuration generation %d: sample %s, report %s, containers %v",
-		d.Generation, a.cfg.sample, a.cfg.report, !a.cfg.containersOff)
+
+	go func() {
+		log.Printf("server asked for a self-update; fetching the latest release")
+		if err := a.selfUpdate(); err != nil {
+			log.Printf("self-update: %v (next attempt in an hour if still asked)", err)
+		}
+	}()
+	return ""
 }
 
 // take returns up to n queued reports without removing them; drop removes

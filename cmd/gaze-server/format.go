@@ -18,6 +18,7 @@ var templateFuncs = template.FuncMap{
 	"ago":     fmtAgo,
 	"uptime":  fmtUptime,
 	"absent":  hasAbsent,
+	"deref":   func(b *bool) bool { return b != nil && *b },
 }
 
 // fmtBytes renders a byte count in binary units.

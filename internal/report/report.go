@@ -36,6 +36,13 @@ type Report struct {
 	// the agent applied, which is how the server tells a change took effect.
 	Generation int `json:"generation,omitempty"`
 
+	// Declined says why the agent refused the last directive it would not
+	// apply — its start flags forbid remote configuration or remote update.
+	// Without it the server cannot tell an agent that will never comply
+	// from one that is simply offline; only one of those needs a person to
+	// walk over and change a flag. Empty means nothing stands refused.
+	Declined string `json:"declined,omitempty"`
+
 	// Version is the agent's own build version.
 	Version string `json:"version,omitempty"`
 

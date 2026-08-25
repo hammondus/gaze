@@ -10,10 +10,10 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 7 done, except that stage 5's `hammondus/mfa`
+**Status:** stages 1 to 8 done, except that stage 5's `hammondus/mfa`
 dependency still resolves through a local `go.work`: publish the module,
 pin it in go.mod, and delete go.work before the server image can build.
-Stage 8 not started.
+Stage 9 is not scheduled.
 
 ---
 
@@ -206,22 +206,29 @@ one message.
 
 ## Stage 8 — Agent management
 
-- [ ] Change interval and collection settings per host from the web front end,
+- [x] Change interval and collection settings per host from the web front end,
       refused unless the agent was started with its own remote-changes flag —
       separate from, and independent of, `-allow-remote-update`. Process
       command-line collection is never one of the settable fields; it stays a
       local, agent-only choice regardless of this flag.
-- [ ] Remote-triggered self-update, refused unless `-allow-remote-update`. The
+- [x] Remote-triggered self-update, refused unless `-allow-remote-update`. The
       directive is a bare trigger: no version, no URL. An agent told to update
       runs the same fetch-latest-and-verify path `gaze --update` already runs
-      by hand.
-- [ ] The server sends the update directive only when its own version matches
+      by hand, then re-execs into the new binary. Attempts are gated to one
+      an hour on the agent, because each is a GitHub download. The unit file
+      documents what enabling this does to the hardening.
+- [x] The server sends the update directive only when its own version matches
       the latest release, so agents never end up running a newer schema than
-      the server. See "The wire format is not the snapshot".
-- [ ] Staggered rollout, so agents do not all fetch from GitHub at once.
-- [ ] Show each agent's version and config generation, and whether it has
+      the server. Checked through the same `/releases/latest` redirect the
+      updater reads, lazily — only while an update stands requested — and
+      cached for an hour.
+- [x] Staggered rollout, so agents do not all fetch from GitHub at once: each
+      host has a stable slot, derived from its id, inside a fifteen-minute
+      window.
+- [x] Show each agent's version and config generation, and whether it has
       caught up with what it was told — and, distinct from "not caught up
-      yet", whether it explicitly declined a directive and why.
+      yet", whether it explicitly declined a directive and why. The refusal
+      travels as `Report.Declined` and shows on the host list itself.
 
 **Done when** changing one host's interval is visible as applied, not just
 sent, and a declined directive is as visible on the host list as an applied

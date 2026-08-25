@@ -461,3 +461,85 @@ func TestLogout(t *testing.T) {
 	resp, _ = w.get("/")
 	wantRedirect(t, resp, "/login")
 }
+
+// TestAgentManagement is the stage-8 done-when through the browser: a
+// change shows as sent, then as applied once the agent echoes it, and a
+// declined directive is visible on the host list itself.
+func TestAgentManagement(t *testing.T) {
+	w := newTestWeb(t)
+	ctx := t.Context()
+
+	token, err := w.store.Enroll(ctx, "web-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostID, err := w.store.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(gen int, declined string) {
+		t.Helper()
+		r := report.Report{
+			Schema: report.Schema, Version: "v1.0.0", Generation: gen, Declined: declined,
+			Host:  report.Host{Hostname: "web-01"},
+			Start: time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+		}
+		if _, err := w.store.InsertReports(ctx, hostID, []report.Report{r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post(0, "")
+	w.setupAndSignIn()
+
+	// Send a configuration; the host page says it is travelling.
+	resp, _ := w.post("/hosts/1/config", url.Values{
+		"sample_s": {"5"}, "report_s": {"30"}, "containers": {"leave"},
+	})
+	wantRedirect(t, resp, "/hosts/1")
+	_, body := w.get("/hosts/1")
+	if !strings.Contains(body, "gen 1 sent, agent at 0") {
+		t.Fatalf("host page does not show the pending config:\n%s", body)
+	}
+
+	// The agent echoes it: applied, and visibly so.
+	post(1, "")
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, "applied gen 1") {
+		t.Fatal("host page does not show the applied config")
+	}
+	if _, body = w.get("/"); !strings.Contains(body, "applied gen 1") {
+		t.Fatal("fleet list does not show the applied config")
+	}
+
+	// The agent declines instead: the refusal is on the host list, as
+	// visible as an applied one, and the host page carries the why.
+	post(1, "configuration generation 2 refused: started without -allow-remote-config")
+	if _, body = w.get("/"); !strings.Contains(body, "declined") {
+		t.Fatal("fleet list does not show the declined directive")
+	}
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, "allow-remote-config") {
+		t.Fatal("host page does not say why the agent declined")
+	}
+
+	// Nonsense intervals are refused at the door.
+	resp, _ = w.post("/hosts/1/config", url.Values{"sample_s": {"0"}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("sample_s=0 accepted: %d", resp.StatusCode)
+	}
+	resp, _ = w.post("/hosts/1/config", url.Values{"sample_s": {"60"}, "report_s": {"30"}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("report shorter than sample accepted: %d", resp.StatusCode)
+	}
+
+	// The update buttons record the request.
+	resp, _ = w.post("/hosts/1/update", url.Values{})
+	wantRedirect(t, resp, "/hosts/1")
+	cfg, err := w.store.HostConfig(ctx, hostID)
+	if err != nil || cfg.UpdateAsked.IsZero() {
+		t.Fatalf("update request not recorded: %+v, %v", cfg, err)
+	}
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, "update requested") {
+		t.Fatal("host page does not show the pending update request")
+	}
+	resp, _ = w.post("/hosts/update-all", url.Values{})
+	wantRedirect(t, resp, "/")
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/hammondus/gaze/internal/alert"
 	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/report"
+	"github.com/hammondus/gaze/internal/store"
 )
 
 // staleAfter is how long after its last report a host is drawn as stale:
@@ -42,6 +43,11 @@ type fleetRow struct {
 	State      string
 	StateClass string
 	MemPct     float64
+
+	// The remote-configuration standing. A declined directive must be as
+	// visible here as an applied one.
+	CfgStatus string
+	CfgClass  string
 }
 
 func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +63,7 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 		if o.MemTotal > 0 {
 			row.MemPct = o.MemUsed / float64(o.MemTotal) * 100
 		}
+		row.CfgStatus, row.CfgClass = configStatus(o.Generation, o.CfgGeneration, o.Declined)
 		rows = append(rows, row)
 	}
 	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Data: rows})
@@ -93,6 +100,12 @@ type hostView struct {
 	// host has never reported.
 	Latest *report.Report
 
+	// Cfg is the remote-management standing, and CfgStatus/CfgClass the
+	// one-line summary of whether the agent has taken it.
+	Cfg       store.HostConfig
+	CfgStatus string
+	CfgClass  string
+
 	Graphs []graph // cpu, load, memory, swap
 	Nets   []graph // one per interface
 	Disks  []graph // one per device
@@ -126,6 +139,13 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.State, v.StateClass = hostState(v.LastSeen)
+
+	v.Cfg, err = s.store.HostConfig(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	v.CfgStatus, v.CfgClass = configStatus(v.Cfg.Echoed, v.Cfg.Generation, v.Cfg.Declined)
 
 	if key := r.URL.Query().Get("range"); key != "" {
 		for _, rg := range ranges {

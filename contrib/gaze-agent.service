@@ -38,5 +38,19 @@ PrivateTmp=true
 # socket grants only that user's containers.
 #SupplementaryGroups=docker
 
+# Remote management is off unless ExecStart carries its flags, and each is
+# a separate consent: -allow-remote-config lets the server change intervals
+# and collection settings; -allow-remote-update lets it trigger a fetch of
+# the latest release (no version, no URL — the same path as a manual
+# update). A remote update also has to be able to replace the binary, which
+# the hardening above forbids on purpose. To allow it, the binary must live
+# somewhere the gaze user may write, and that path must be writable through
+# ProtectSystem=strict:
+#
+#   install -d -o gaze -g gaze /usr/local/lib/gaze
+#   install -o gaze -g gaze -m 0755 gaze-agent /usr/local/lib/gaze/
+#   ... ExecStart=/usr/local/lib/gaze/gaze-agent ... -allow-remote-update
+#ReadWritePaths=/usr/local/lib/gaze
+
 [Install]
 WantedBy=multi-user.target

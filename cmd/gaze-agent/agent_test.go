@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -194,5 +195,98 @@ func TestGapIsFilledAfterOutage(t *testing.T) {
 	}
 	if !covered {
 		t.Errorf("no received report covers the outage %v..%v: the gap was not filled", outageStart, outageEnd)
+	}
+}
+
+// TestDeclinedEcho pins the stage-8 contract: a refusal rides the next
+// report, and clears once the server stops asking for the refused thing.
+func TestDeclinedEcho(t *testing.T) {
+	a := testAgent(t, "http://127.0.0.1:1", false)
+
+	a.apply(&report.Directive{Generation: 3, SampleSeconds: 30})
+	a.window = []metrics.Snapshot{{Taken: time.Now()}}
+	a.emit()
+	got := a.take(1)[0]
+	if got.Declined == "" || got.Generation != 0 {
+		t.Fatalf("refused directive not echoed: declined=%q gen=%d", got.Declined, got.Generation)
+	}
+	a.drop(1)
+
+	// The server gives up (sends the agent's own generation): nothing
+	// stands refused any more.
+	a.apply(&report.Directive{Generation: 0})
+	a.window = []metrics.Snapshot{{Taken: time.Now()}}
+	a.emit()
+	if got := a.take(1)[0]; got.Declined != "" {
+		t.Fatalf("declined did not clear: %q", got.Declined)
+	}
+}
+
+// TestUpdateRefusedWithoutFlag: the update trigger without
+// -allow-remote-update is declined with why, and nothing runs.
+func TestUpdateRefusedWithoutFlag(t *testing.T) {
+	a := testAgent(t, "http://127.0.0.1:1", false)
+	ran := false
+	a.selfUpdate = func() error { ran = true; return nil }
+
+	a.apply(&report.Directive{Update: true})
+	if ran {
+		t.Fatal("self-update ran without -allow-remote-update")
+	}
+	a.mu.Lock()
+	declined := a.declined
+	a.mu.Unlock()
+	if !strings.Contains(declined, "allow-remote-update") {
+		t.Fatalf("declined = %q, want the flag named", declined)
+	}
+}
+
+// TestUpdateRunsOncePerHour: the server re-sends the trigger every report
+// until the version changes, and each attempt is a GitHub download, so
+// attempts are gated to one an hour.
+func TestUpdateRunsOncePerHour(t *testing.T) {
+	a := testAgent(t, "http://127.0.0.1:1", false)
+	a.allowRemoteUpdate = true
+
+	var mu sync.Mutex
+	runs := 0
+	done := make(chan struct{}, 4)
+	a.selfUpdate = func() error {
+		mu.Lock()
+		runs++
+		mu.Unlock()
+		done <- struct{}{}
+		return nil
+	}
+
+	a.apply(&report.Directive{Update: true})
+	<-done
+	a.apply(&report.Directive{Update: true})
+	a.apply(&report.Directive{Update: true})
+
+	mu.Lock()
+	got := runs
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("self-update ran %d times inside the hour, want 1", got)
+	}
+	a.mu.Lock()
+	declined := a.declined
+	a.mu.Unlock()
+	if declined != "" {
+		t.Fatalf("a gated retry read as a refusal: %q", declined)
+	}
+
+	// Past the gate, the next trigger runs again.
+	a.mu.Lock()
+	a.updateStarted = time.Now().Add(-2 * time.Hour)
+	a.mu.Unlock()
+	a.apply(&report.Directive{Update: true})
+	<-done
+	mu.Lock()
+	got = runs
+	mu.Unlock()
+	if got != 2 {
+		t.Fatalf("self-update did not run after the gate expired: %d", got)
 	}
 }

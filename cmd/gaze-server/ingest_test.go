@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -29,7 +30,7 @@ func testServer(t *testing.T) (*store.Store, *httptest.Server, string) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/v1/reports", newIngest(s, testAlerter(s)))
+	mux.Handle("POST /api/v1/reports", newIngest(s, testAlerter(s), testDirectives(s)))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return s, srv, token
@@ -121,7 +122,7 @@ func TestIngestBusy(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	h := newIngest(s, testAlerter(s))
+	h := newIngest(s, testAlerter(s), testDirectives(s))
 	for range ingestSlots {
 		h.slots <- struct{}{}
 	}
@@ -134,6 +135,16 @@ func TestIngestBusy(t *testing.T) {
 		t.Error("429 without Retry-After leaves the agent guessing")
 	}
 }
+
+// testDirectives never reaches the network: the gate's lookup is stubbed,
+// so a test that requests an update cannot touch GitHub.
+func testDirectives(s *store.Store) *directives {
+	d := newDirectives(s, "test")
+	d.gate.lookup = func() (string, error) { return "", errNoNetwork }
+	return d
+}
+
+var errNoNetwork = errors.New("tests must not reach the network")
 
 // testAlerter is a quiet alerter for tests whose subject is ingest, not
 // alerting; alert behaviour has its own suite in internal/alert.

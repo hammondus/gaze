@@ -157,7 +157,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/v1/reports", newIngest(s, alerter))
+	mux.Handle("POST /api/v1/reports", newIngest(s, alerter, newDirectives(s, buildVersion())))
 	mux.Handle("/", web.handler())
 
 	srv := &http.Server{

@@ -44,6 +44,47 @@
   {{range .Disks}}{{template "graph" .}}{{end}}
 </div>
 
+<h2>Agent</h2>
+<p class="meta">
+  {{if .AgentVersion}}version {{.AgentVersion}}{{else}}version unknown{{end}}
+  {{if .CfgStatus}} · <span class="chip {{.CfgClass}}">{{.CfgStatus}}</span>{{end}}
+  {{if not .Cfg.UpdateAsked.IsZero}} · update requested {{ago .Cfg.UpdateAsked}}{{end}}
+</p>
+{{if .Cfg.Declined}}
+<p class="declined">The agent declined the last directive: {{.Cfg.Declined}}.
+Its start flags decide what a server may change; someone has to edit the
+unit file on the host.</p>
+{{end}}
+
+<form method="post" action="/hosts/{{.ID}}/config" class="agent-form">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <label>Sample every
+    <input type="number" name="sample_s" min="1" max="3600"
+           value="{{if .Cfg.SampleS}}{{.Cfg.SampleS}}{{end}}" placeholder="agent's own"> s</label>
+  <label>Report every
+    <input type="number" name="report_s" min="1" max="3600"
+           value="{{if .Cfg.ReportS}}{{.Cfg.ReportS}}{{end}}" placeholder="agent's own"> s</label>
+  <label>Containers
+    <select name="containers">
+      <option value="leave">leave alone</option>
+      <option value="on" {{if .Cfg.Containers}}{{if deref .Cfg.Containers}}selected{{end}}{{end}}>collect</option>
+      <option value="off" {{if .Cfg.Containers}}{{if not (deref .Cfg.Containers)}}selected{{end}}{{end}}>off</option>
+    </select></label>
+  <button>Send configuration</button>
+</form>
+<p class="dim">Applied only if the agent runs with -allow-remote-config;
+otherwise it declines, and says so here. Blank fields leave the agent's
+own setting alone.</p>
+
+<form method="post" action="/hosts/{{.ID}}/update" class="agent-form">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <button>Update agent</button>
+</form>
+<p class="dim">Tells the agent to fetch the latest release and verify its
+checksum — no version, no URL, and only if it runs with
+-allow-remote-update. Sent only while this server is itself on the latest
+release, staggered across the fleet.</p>
+
 {{with .Latest}}
 {{if .Mounts}}
 <h2>Filesystems</h2>
