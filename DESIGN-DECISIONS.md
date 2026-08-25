@@ -1041,6 +1041,34 @@ hour at the default interval. Bounded is the important word: an unbounded buffer
 converts a long server outage into an out-of-memory kill on the host you were
 trying to watch, which is a monitoring system causing the incident.
 
+## Agent decisions worth keeping
+
+Stage 3 settled a few things the plan left open:
+
+- **The agent is three loops around one mutex.** The sampler chains
+  collections the way the TUI does, because `Collector` is not safe for
+  concurrent use and a loaded machine should sample less often rather than
+  queue work. The reporter reduces the window into the ring on wall-aligned
+  ticks. The flusher drains the ring, and only it sleeps on backoff — so an
+  outage never stops sampling, which is the whole point of the buffer.
+- **The body is always a JSON array.** One report is an array of one. A
+  second body shape for batches would be a second thing to version; the
+  batch cap of ten bounds what a flushed hour-long backlog puts in one
+  request.
+- **`-allow-remote-config` exists from the first release, default off.** The
+  roadmap placed the gate at stage 8, but shipping an agent that applies
+  remote configuration ungated and tightening later is a behaviour break in
+  the wrong direction. Loosening a default is safe; stage 8 keeps the
+  server-side half and the declined-directive echo.
+- **The token is read per request, not at start-up.** Rotating it on disk
+  then needs no restart, and the cost is one small file read per minute.
+- **The reports live in `package main`.** Nothing else consumes the agent's
+  loop, ring, or client, so `cmd/gaze-agent` holds them; a shared package
+  would be structure without a second caller.
+- **Peek, post, then drop.** The flusher removes reports from the ring only
+  after the server accepted them, so a failed post loses nothing; the ring
+  dropping its own oldest under overflow is the one deliberate loss.
+
 ## SQLite, and what six months costs
 
 Storage is SQLite through `modernc.org/sqlite`, in WAL mode, with a single

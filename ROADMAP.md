@@ -10,7 +10,7 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 and 2 done. Stage 3 not started.
+**Status:** stages 1 to 3 done. Stage 4 not started.
 
 ---
 
@@ -55,19 +55,24 @@ the golden fixture fails on any field rename.
 
 ## Stage 3 — Agent, Linux only
 
-- [ ] `cmd/gaze-agent`: collect on a short interval, post on a long one.
-- [ ] `POST /api/v1/reports`, JSON, gzipped, bearer token read from a token
-      file (mode 0600), never a CLI flag.
-- [ ] Refuse a plain `http://` server URL unless the host is loopback. The
+- [x] `cmd/gaze-agent`: collect on a short interval, post on a long one.
+- [x] `POST /api/v1/reports`, JSON, gzipped, bearer token read from a token
+      file (mode 0600), never a CLI flag. The body is always a JSON array,
+      so a backlog flushes in bounded batches of ten.
+- [x] Refuse a plain `http://` server URL unless the host is loopback. The
       directive channel assumes TLS.
-- [ ] Bounded ring buffer of unsent reports, about sixty.
-- [ ] Full-jitter backoff, capped near fifteen minutes; honour `Retry-After`.
-- [ ] Stable per-host reporting offset derived from the host ID.
-- [ ] Apply directives from the reply; echo the config generation.
-- [ ] systemd unit, and a documented unprivileged user. The documentation
+- [x] Bounded ring buffer of unsent reports, about sixty.
+- [x] Full-jitter backoff, capped near fifteen minutes; honour `Retry-After`.
+- [x] Stable per-host reporting offset derived from the host ID.
+- [x] Apply directives from the reply; echo the config generation. Applying
+      is gated behind `-allow-remote-config` from the first release — the
+      stage 8 flag, shipped early, because loosening a default is safe and
+      tightening one is a behaviour break.
+- [x] systemd unit, and a documented unprivileged user. The documentation
       states what Docker socket access does to that word — see "Unprivileged
       stops at the Docker socket" in DESIGN-DECISIONS.
-- [ ] A throwaway server that logs what it receives, to prove the path.
+- [x] A throwaway server that logs what it receives, to prove the path:
+      `cmd/gaze-devserver`, deleted when stage 4 lands.
 
 **Done when** an agent survives the throwaway server being stopped for ten
 minutes and the gap is filled on its return.

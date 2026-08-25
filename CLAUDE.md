@@ -46,6 +46,11 @@ snapshots to what goes over the wire.
 
 - `cmd/gaze/main.go` — flags, start-up checks, `--update`/`--check-update`
   handling.
+- `cmd/gaze-agent` — samples on a short interval, posts reductions on a long
+  one. The loop, ring buffer, and HTTP client live in `package main`; nothing
+  else consumes them. Test with `go test ./cmd/gaze-agent`.
+- `cmd/gaze-devserver` — throwaway ingest endpoint for trying the agent;
+  deleted when `gaze-server` lands.
 - `internal/metrics` — collection from `/proc`, `/sys`, and the container
   runtime socket. **Standard library only; do not add a dependency here.**
 - `internal/report` — the wire contract between the agent and the server:

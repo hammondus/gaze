@@ -1,0 +1,42 @@
+# gaze-agent: posts this host's measurements to a gaze-server.
+#
+# Install:
+#   useradd --system --home /nonexistent --shell /usr/sbin/nologin gaze
+#   install -m 0755 gaze-agent /usr/local/bin/
+#   install -d -m 0750 -o gaze -g gaze /etc/gaze
+#   (umask 077; echo "<token>" > /etc/gaze/token) && chown gaze:gaze /etc/gaze/token
+#   systemctl enable --now gaze-agent
+#
+# The agent refuses a token file that group or other can read.
+
+[Unit]
+Description=gaze agent
+Documentation=https://github.com/hammondus/gaze
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gaze
+Group=gaze
+ExecStart=/usr/local/bin/gaze-agent -server https://gaze.example.net -token-file /etc/gaze/token
+Restart=on-failure
+RestartSec=5
+
+# The agent reads /proc, /sys, and its token file, and writes nothing.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+# Container statistics need the runtime socket. On most hosts that means the
+# docker group — and the docker group is root in practice: anyone in it can
+# start a container with the host filesystem mounted inside. With the line
+# below, "unprivileged" describes this account, not its blast radius; see
+# "Unprivileged stops at the Docker socket" in DESIGN-DECISIONS.md. Leave it
+# commented out and add -containers=false to ExecStart if you would rather
+# the agent never touch the socket; rootless Podman is the setup where the
+# socket grants only that user's containers.
+#SupplementaryGroups=docker
+
+[Install]
+WantedBy=multi-user.target

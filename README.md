@@ -156,6 +156,35 @@ gaze
 To read a captured pseudo-filesystem instead of the running kernel, point
 `-procfs` and `-sysfs` at a copied directory tree.
 
+## The agent
+
+`gaze-agent` posts the same measurements to a central `gaze-server`, which is
+still being built — see [ROADMAP.md](ROADMAP.md). The agent collects every 10
+seconds and reports once a minute, sending the minimum, maximum, and mean of
+each figure, so a spike between reports still arrives. During a server outage
+it queues about an hour of reports and fills the gap on reconnection.
+
+```
+gaze-agent -server https://gaze.example.net -token-file /etc/gaze/token
+```
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `-server` | | Server base URL. `https`, or `http` on loopback only |
+| `-token-file` | | Bearer token file, mode `0600`. Never a flag: `ps` shows flags to every user |
+| `-sample` | `10s` | Collection interval |
+| `-report` | `1m` | Reporting interval |
+| `-containers` | `true` | Collect container statistics |
+| `-cmdlines` | `false` | Include process command lines, which can carry secrets. A local choice; no server can switch it on |
+| `-allow-remote-config` | `false` | Let the server change intervals and collection settings |
+
+To run it as a service, start from
+[contrib/gaze-agent.service](contrib/gaze-agent.service): it documents the
+unprivileged user, the token file, and what joining the `docker` group for
+container statistics really grants. `cmd/gaze-devserver` is a throwaway
+endpoint that logs what an agent posts, for trying the path before a real
+server exists.
+
 ## Requirements
 
 gaze reads `/proc` and `/sys` directly, so **it runs on Linux only**. It

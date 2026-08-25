@@ -1,5 +1,7 @@
 # Build output
 /gaze
+/gaze-agent
+/gaze-devserver
 /dist/
 
 # Local module resolution, per the workspace convention. Never commit this:
