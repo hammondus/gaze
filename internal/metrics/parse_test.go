@@ -106,6 +106,9 @@ func TestParseMeminfo(t *testing.T) {
 	if want := uint64((4194304 - 4063232) << 10); s.Used != want {
 		t.Errorf("swap used = %d, want %d", s.Used, want)
 	}
+	if m.Dirty != 153796<<10 || m.Writeback != 1024<<10 {
+		t.Errorf("dirty = %d, writeback = %d", m.Dirty, m.Writeback)
+	}
 }
 
 // Kernels before 3.14 have no MemAvailable line, and the fallback must still

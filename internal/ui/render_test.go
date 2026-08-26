@@ -741,22 +741,3 @@ func TestVirtualDevicesHidden(t *testing.T) {
 		t.Error("a panel still reports hidden devices while they are all on screen")
 	}
 }
-
-// TestDiskPanelHeadSparkline checks the heading carries the aggregate rate
-// history, so a writeback burst that landed between glances is still on
-// screen a minute later instead of surviving only in the refresh it hit.
-func TestDiskPanelHeadSparkline(t *testing.T) {
-	hist := newRing(historyLen)
-	for i := 0; i < historyLen-1; i++ {
-		hist.push(0)
-	}
-	hist.push(100 << 20) // one flush burst, everything else idle
-
-	p := diskPanel(demoSnapshot(), hist, 30, 5, false)
-	if !strings.ContainsRune(p.head, '█') {
-		t.Errorf("no burst in the disk panel heading: %q", p.head)
-	}
-	if !strings.HasSuffix(p.head, "write") {
-		t.Errorf("column labels lost from the heading: %q", p.head)
-	}
-}

@@ -33,6 +33,10 @@ func parseMeminfo(r io.Reader) (Memory, Swap, error) {
 			m.Buffers = v
 		case "Cached":
 			m.Cached = v
+		case "Dirty":
+			m.Dirty = v
+		case "Writeback":
+			m.Writeback = v
 		case "SReclaimable":
 			sReclaimable = v
 		case "SwapTotal":

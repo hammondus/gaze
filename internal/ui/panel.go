@@ -100,14 +100,7 @@ func flow(panels []panel, cols, width, colWidth, gap int) string {
 // virtual interfaces that never move a byte, and listing them buries the one
 // you care about. Unless showVirtual is set, so are the bridges and veths a
 // container runtime builds, whatever they are carrying — see internal/devices.
-// The heading's blank space carries a sparkline of the summed rate across all
-// devices, because the instantaneous figures alone mislead: buffered disk
-// writeback arrives as a sub-second burst every dirty-expiry interval, so the
-// write column reads 0 for almost every refresh of a transfer that is in fact
-// keeping up. The history is aggregate rather than per device — a device row
-// has no width to spare in a thirty-column sidebar, and a second line per
-// device would halve the panel's capacity.
-func netPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) panel {
+func netPanel(s metrics.Snapshot, w, maxRows int, showVirtual bool) panel {
 	type row struct {
 		n     metrics.Network
 		total float64
@@ -135,7 +128,7 @@ func netPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) 
 
 	nameW := w - 18
 	p := panel{title: "NETWORK", note: hiddenNote(hidden),
-		head: pad(hist.sparkRunes(nameW-1, 0), nameW) + padLeft("rx", 8) + padLeft("tx", 9)}
+		head: pad("", nameW) + padLeft("rx", 8) + padLeft("tx", 9)}
 	for i, r := range rows {
 		if i >= maxRows {
 			break
@@ -149,7 +142,12 @@ func netPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) 
 
 // diskPanel lists block devices by how busy they are. Unless showVirtual is
 // set, the loop and ram devices are left out — see internal/devices.
-func diskPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) panel {
+//
+// The rates are instantaneous, and for buffered writes that means the write
+// column truthfully reads 0/s between writeback flushes — see "The disk
+// panel shows instantaneous rates" in DESIGN-DECISIONS.md before adding a
+// smoothed or historical figure here; three of them have already lost.
+func diskPanel(s metrics.Snapshot, w, maxRows int, showVirtual bool) panel {
 	disks := make([]metrics.Disk, 0, len(s.Disks))
 	hidden := 0
 	for _, d := range s.Disks {
@@ -170,7 +168,7 @@ func diskPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool)
 
 	nameW := w - 18
 	p := panel{title: "DISK I/O", note: hiddenNote(hidden),
-		head: pad(hist.sparkRunes(nameW-1, 0), nameW) + padLeft("read", 8) + padLeft("write", 9)}
+		head: pad("", nameW) + padLeft("read", 8) + padLeft("write", 9)}
 	for i, d := range disks {
 		if i >= maxRows {
 			break

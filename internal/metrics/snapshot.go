@@ -71,6 +71,7 @@ const (
 	FieldProcessSwap    Field = "process.swap"
 	FieldProcessCmdline Field = "process.cmdline"
 	FieldSensors        Field = "sensors"
+	FieldMemoryDirty    Field = "memory.dirty"
 )
 
 // IsAbsent reports whether the running platform could not supply a field.
@@ -118,6 +119,13 @@ type Memory struct {
 	Buffers   uint64
 	Cached    uint64
 	Percent   float64
+	// Dirty and Writeback are page-cache bytes on their way to a disk:
+	// modified but not yet queued, and queued right now. Together they are
+	// the I/O the block devices are about to do, which is the only sign of a
+	// buffered transfer while the kernel absorbs it — the device counters
+	// stay at zero between flushes.
+	Dirty     uint64
+	Writeback uint64
 }
 
 // Swap holds swap usage in bytes.

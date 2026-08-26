@@ -535,34 +535,44 @@ Anything already carrying colour goes through `clipWidth`, which measures
 display width. The plain helpers in `format.go` count runes, and a rune count
 of a styled string counts the escape sequences too.
 
-## The device panels carry a sparkline, and it compresses by maximum
+## The disk panel shows instantaneous rates
 
-The network and disk panels show per-refresh rates, and for buffered disk I/O
-the per-refresh rate is a truthful number that reads as a lie. The kernel
-absorbs a steady write stream into the page cache and flushes it as a
-sub-second burst every dirty-expiry interval, so a transfer that is keeping up
-renders as a write column that says `0/s` on almost every refresh — the burst
-lands in one frame and is gone before the eye catches it. Watching an scp
-arrive at 4M/s over a disk column full of zeros was the motivating case, and
-glances misleads the same way for the same reason.
+The disk panel's per-refresh rates are truthful numbers that can read as a
+lie. The kernel absorbs a steady buffered write stream into the page cache
+and flushes it as a sub-second burst once the dirty pages age past
+`vm.dirty_expire_centisecs`, so a transfer that is keeping up renders as a
+write column saying `0/s` on almost every refresh, the whole flush landing
+in one frame. Watching an scp arrive at 4M/s over a disk column full of
+zeros was the motivating case; glances reads the same way for the same
+reason. Only a writer fast enough to outrun the disk past
+`vm.dirty_background_ratio` — gigabytes on an idle machine, since the
+threshold scales with reclaimable memory — shifts into the continuous
+writeback that a rate column shows as sustained.
 
-The fix is history, not smoothing. A rolling average would replace one
-misleading number with another — a burst diluted across thirty seconds looks
-like a trickle. Instead each panel's heading line carries a sparkline of the
-summed rate across its devices, drawn in the blank space left of the column
-labels, so it costs no rows. The history is aggregate rather than per device:
-a device row in a thirty-column sidebar has no width to spare, and a second
-line per device would halve the panel's capacity for the machines with one
-busy disk that are the common case.
+Three displays were built against that transfer to close the gap, and all
+three lost, which is why the panel shows plain instantaneous rates today:
 
-The sparkline ring holds sixty samples but the line is usually narrower, and
-how the extra samples are dropped is the decision that matters. Cutting to the
-newest samples — what `spark` originally did — shows fourteen seconds and
-discards the burst it exists to show. Averaging into buckets rounds the burst
-away. Each bucket keeps its maximum instead, so one loud sample stays a full
-bar wherever it falls in the minute. The rescale applies to the gauge
-sparklines too, which had been quietly showing a quarter of the history the
-comment beside `historyLen` promised.
+- **A heading sparkline of the summed rate**, compressed to the line by
+  max-per-bucket and later drawn on a fixed log scale. Truthful, but a burst
+  confined to one or two columns among blanks reads as "almost nothing",
+  however tall the bars, and autoscaling before that made bar height mean
+  nothing at all: a 30K dribble filled a quiet minute's line, then one burst
+  crushed everything beside it to blank.
+- **A pinned dirty-pages row** (`Dirty` plus `Writeback` from
+  `/proc/meminfo`), the bytes committed for disk that no device counter
+  shows yet. Honest and cheap, but its fill-and-flush sawtooth spans barely
+  two bar-steps on a log scale, and reading the figure at all requires
+  knowing the kernel's writeback policy.
+- **Pinned rows of windowed averages** (5 through 60 seconds side by side)
+  over the summed physical rates. The long windows do settle at the true
+  throughput, but five rows of near-duplicate figures ate the sidebar
+  without earning it in use.
+
+The parts worth keeping stayed: the collector still reads `Dirty` and
+`Writeback` into `Memory` (honest data, marked absent in the SSH view since
+reports do not carry it), and the burst arithmetic is a `sync` away for
+anyone who needs it. If this itch returns, start from what the experiments
+learned rather than rebuilding them.
 
 ## Sort ties break on a second column
 
@@ -1515,6 +1525,48 @@ Stage 7 settled the details, recorded rather than rediscovered:
 - **A never-reported host is not stale.** Enrolment without an agent is
   setup in progress; the staleness alert starts existing the first time
   the server hears from the host at all.
+
+## The server image is distroless/static, and the Debian release is in the tag
+
+`gaze-server` was first packaged on `alpine:3.20`, which had reached end of
+support on 2026-04-01 before the Dockerfile was written. Alpine was never
+argued for; it was the default that came out of writing the file. Corrected
+2026-08-27 to `gcr.io/distroless/static-debian13:nonroot`.
+
+The reasoning that should have applied the first time: the binary is
+`CGO_ENABLED=0` pure Go, so the base contributes no code, only files.
+`gaze-server` needs three of them — the CA roots that alert mail over SMTP+TLS
+verifies against (`mailer` refuses a plaintext fallback, so a missing root
+store is a hard failure), tzdata, and a passwd entry for the unprivileged uid.
+distroless/static ships all three and nothing else: no shell, no libc, no
+package manager, and no distro release cycle to track. Alpine ships the same
+three plus a shell, a package manager, and a support window that expires.
+
+**The shell is not worth keeping for debugging.** The host is yours, so
+`nsenter -t $(docker inspect -f '{{.State.Pid}}' gaze-server) -m -n -p sh`
+gives you the container's namespaces using the host's full toolset — strictly
+more than busybox — without a shell living in a proxied service. distroless
+also publishes `:debug` tags with busybox for a one-deploy swap.
+
+**The Debian release is named in the tag on purpose.** The floating
+`static:nonroot` tag follows Google onto the next Debian major on the next
+rebuild. Naming it makes a base-OS change a commit. It stays a tag and not a
+digest so a rebuild still picks up CA and tzdata updates within Debian 13 —
+pinning the digest would freeze the root store, which is the opposite of what
+a service doing outbound TLS wants.
+
+**The runbook survives the missing shell.** `docker compose exec gaze-server
+gaze-server enroll <host> -db /data/gaze.db` still works: `exec` resolves the
+command against the image's `PATH` and execs it directly, no shell involved,
+and the binary stays at `/usr/local/bin/gaze-server` for that reason.
+
+**The uid changed from an `adduser`-assigned id to 65532 (`nonroot`).** A
+named volume takes the ownership of the image directory it mounts over, on
+first mount only — so an existing `gaze-data` volume stays owned by the old
+id, and the server fails to open the database. There is no data worth keeping
+at this stage, so the fix is `docker compose down -v` and re-enrol. A volume
+worth preserving would need a `chown -R 65532:65532` from a helper container
+instead.
 
 ## Known gaps
 

@@ -71,10 +71,11 @@ func (q *Q) LatestSnapshot(ctx context.Context, hostID int64) (metrics.Snapshot,
 		ContainerRuntime:   r.ContainerRuntime,
 		ContainersDisabled: r.ContainersDisabled,
 
-		// Sensors never cross the wire, so they are absent here by
-		// construction, on top of whatever the host's own platform could
-		// not supply.
-		Absent: withField(toFields(r.Absent), metrics.FieldSensors),
+		// Sensors and the dirty-page figures never cross the wire, so they
+		// are absent here by construction, on top of whatever the host's own
+		// platform could not supply.
+		Absent: withField(withField(toFields(r.Absent), metrics.FieldSensors),
+			metrics.FieldMemoryDirty),
 	}
 
 	for _, n := range r.Networks {

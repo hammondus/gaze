@@ -296,13 +296,17 @@ func TestLatestSnapshot(t *testing.T) {
 		t.Errorf("taken = %v, want %v", snap.Taken, posted.End)
 	}
 
-	// Sensors never cross the wire; the sample report also declared them
-	// absent itself, and the two must not double up.
+	// Sensors and the dirty-page figures never cross the wire; the sample
+	// report also declared sensors absent itself, and the two must not
+	// double up.
 	if !snap.IsAbsent(metrics.FieldSensors) {
 		t.Error("sensors not absent")
 	}
-	if n := len(snap.Absent); n != 1 {
-		t.Errorf("absent = %v, want the one deduplicated entry", snap.Absent)
+	if !snap.IsAbsent(metrics.FieldMemoryDirty) {
+		t.Error("dirty pages not absent")
+	}
+	if n := len(snap.Absent); n != 2 {
+		t.Errorf("absent = %v, want the two deduplicated entries", snap.Absent)
 	}
 	if len(snap.PerCPU) != 0 || len(snap.Sensors) != 0 {
 		t.Error("per-core or sensor data fabricated from nothing")

@@ -20,7 +20,7 @@ import (
 // historyLen is how many samples the sparklines keep. At the default one
 // second refresh that is a minute of history, which is long enough to show a
 // spike you just missed. A line narrower than this compresses the history to
-// fit rather than cutting it — see sparkRunes.
+// fit rather than cutting it — see spark.
 const historyLen = 60
 
 // collectTimeout bounds one collection. Reading /proc cannot hang, but the
@@ -454,8 +454,8 @@ func (m Model) sidebar(w, h int) string {
 	// what it is given. The builders sort before they truncate, so cutting the
 	// finished list keeps the same rows as building a shorter one would.
 	ps := []panel{
-		netPanel(m.snap, m.netHist, w, h, !m.hideVirt),
-		diskPanel(m.snap, m.diskHist, w, h, !m.hideVirt),
+		netPanel(m.snap, w, h, !m.hideVirt),
+		diskPanel(m.snap, w, h, !m.hideVirt),
 		fsPanel(m.snap, w, h),
 	}
 	if len(m.snap.Sensors) > 0 {
@@ -774,8 +774,8 @@ func bandColumns(n, width int) (cols, colWidth int) {
 // panels builds the first n panels in fixed order.
 func (m Model) panels(n, colW, maxRows int) []panel {
 	all := []panel{
-		netPanel(m.snap, m.netHist, colW, maxRows, !m.hideVirt),
-		diskPanel(m.snap, m.diskHist, colW, maxRows, !m.hideVirt),
+		netPanel(m.snap, colW, maxRows, !m.hideVirt),
+		diskPanel(m.snap, colW, maxRows, !m.hideVirt),
 		fsPanel(m.snap, colW, maxRows),
 	}
 	if len(m.snap.Sensors) > 0 {
