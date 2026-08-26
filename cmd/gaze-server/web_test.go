@@ -543,3 +543,80 @@ func TestAgentManagement(t *testing.T) {
 	resp, _ = w.post("/hosts/update-all", url.Values{})
 	wantRedirect(t, resp, "/")
 }
+
+// TestHostPageHidesVirtualDevices covers the web half of the device toggle. A
+// container host stores a graph per veth, bridge, and loop device, which is
+// the page's whole length spent on interfaces nobody asked about.
+func TestHostPageHidesVirtualDevices(t *testing.T) {
+	w := newTestWeb(t)
+	ctx := t.Context()
+
+	token, err := w.store.Enroll(ctx, "ctr-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostID, err := w.store.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy := report.Stat{Min: 1, Max: 3, Mean: 2}
+	r := report.Report{
+		Schema: report.Schema,
+		Host:   report.Host{Hostname: "ctr-01", CPUCount: 4},
+		Start:  time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+		Networks: []report.Network{
+			{Name: "eth0", Rx: busy, Tx: busy, Up: true},
+			{Name: "docker0", Rx: busy, Tx: busy, Up: true},
+			{Name: "veth3a91c07", Rx: busy, Tx: busy, Up: true},
+		},
+		Disks: []report.Disk{
+			{Name: "nvme0n1", Read: busy, Write: busy},
+			{Name: "loop0", Read: busy},
+		},
+	}
+	if _, err := w.store.InsertReports(ctx, hostID, []report.Report{r}); err != nil {
+		t.Fatal(err)
+	}
+
+	w.setupAndSignIn()
+	_, body := w.get("/hosts/1")
+	for _, name := range []string{"docker0", "veth3a91c07", "loop0"} {
+		if strings.Contains(body, name) {
+			t.Errorf("%s is graphed on the default page", name)
+		}
+	}
+	for _, name := range []string{"eth0", "nvme0n1"} {
+		if !strings.Contains(body, name) {
+			t.Errorf("%s is missing from the page", name)
+		}
+	}
+	if !strings.Contains(body, "show 3 virtual devices") {
+		t.Error("the page does not offer to show what it left out")
+	}
+	// The range links carry the device setting, and the device link the
+	// range: one control must not reset the other.
+	if !strings.Contains(body, `href="/hosts/1?range=1h"`) {
+		t.Error("range links lost their href")
+	}
+
+	_, body = w.get("/hosts/1?virtual=1")
+	for _, name := range []string{"eth0", "docker0", "veth3a91c07", "nvme0n1", "loop0"} {
+		if !strings.Contains(body, name) {
+			t.Errorf("%s is missing with ?virtual=1", name)
+		}
+	}
+	if !strings.Contains(body, "hide virtual devices") {
+		t.Error("no way back to the short page")
+	}
+	if !strings.Contains(body, `href="/hosts/1?range=1h&amp;virtual=1"`) {
+		t.Error("a range link dropped the device setting")
+	}
+
+	// A host with nothing to hide gets no control at all.
+	if _, err := w.store.Enroll(ctx, "plain-01"); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := w.get("/hosts/2"); strings.Contains(body, "virtual device") {
+		t.Error("a host with no virtual devices still offers the toggle")
+	}
+}

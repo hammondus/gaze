@@ -117,13 +117,20 @@ func demoReport(name string, t time.Time) report.Report {
 		Memory: report.Gauge{Total: 8 << 30, Used: stat(memUsed, 200e6)},
 		Swap:   report.Gauge{Total: 2 << 30, Used: stat(80e6, 10e6)},
 		Procs:  report.ProcCounts{Total: 187, Running: 2, Sleeping: 180, Zombie: 1, Threads: 400, Kernel: 90},
+		// The bridge, the veths, and the loop device are here so the host
+		// page's device toggle has something to hide: this is a host running
+		// containers, and a real one carries a graph for each of them.
 		Networks: []report.Network{
 			{Name: "eth0", Rx: stat(rx, 60e3), Tx: stat(rx/4, 20e3), Up: true},
 			{Name: "wg0", Rx: stat(4e3, 2e3), Tx: stat(3e3, 1e3), Up: true},
+			{Name: "docker0", Rx: stat(rx/2, 30e3), Tx: stat(rx/8, 10e3), Up: true},
+			{Name: "veth3a91c07", Rx: stat(rx/3, 20e3), Tx: stat(rx/9, 8e3), Up: true},
+			{Name: "vethb52f8de", Rx: stat(rx/6, 10e3), Tx: stat(rx/12, 4e3), Up: true},
 		},
 		Disks: []report.Disk{
 			{Name: "sda", Read: stat(400e3, 200e3), Write: stat(900e3, 300e3),
 				ReadOps: stat(40, 15), WriteOps: stat(80, 20)},
+			{Name: "loop0", Read: stat(8e3, 4e3), ReadOps: stat(2, 1)},
 		},
 		Mounts: []report.Mount{
 			{Device: "/dev/sda1", Path: "/", FSType: "ext4", Total: 100 << 30, Used: 63 << 30, Percent: 63},

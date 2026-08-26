@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/hammondus/gaze/internal/devices"
 	"github.com/hammondus/gaze/internal/metrics"
 )
 
@@ -15,14 +18,24 @@ import (
 // tables. Neither arrangement is the panel's business.
 type panel struct {
 	title string
+	note  string   // optional aside, drawn muted at the end of the title line
 	head  string   // optional column headings, drawn muted under the title
 	rows  []string // already styled and padded to the panel's width
 }
 
 // render draws a panel: a coloured title, then the rows.
+//
+// The note shares the title's line, right-aligned, and is dropped rather than
+// crowded when the panel is too narrow to carry both. It says what the panel is
+// not showing, so it belongs beside the title and not in a row: a row spent
+// saying "12 hidden" is a row not spent on a device.
 func (p panel) render(width int) string {
 	var b strings.Builder
-	b.WriteString(styTitle.Render(pad(p.title, width)))
+	if n := utf8.RuneCountInString(p.note); n > 0 && utf8.RuneCountInString(p.title)+2+n <= width {
+		b.WriteString(styTitle.Render(pad(p.title, width-n)) + styLabel.Render(p.note))
+	} else {
+		b.WriteString(styTitle.Render(pad(p.title, width)))
+	}
 	if p.head != "" {
 		b.WriteString("\n" + styLabel.Render(pad(p.head, width)))
 	}
@@ -85,15 +98,30 @@ func flow(panels []panel, cols, width, colWidth, gap int) string {
 //
 // Interfaces that are down and idle are dropped: a laptop carries a dozen
 // virtual interfaces that never move a byte, and listing them buries the one
-// you care about.
-func netPanel(s metrics.Snapshot, w, maxRows int) panel {
+// you care about. Unless showVirtual is set, so are the bridges and veths a
+// container runtime builds, whatever they are carrying — see internal/devices.
+// The heading's blank space carries a sparkline of the summed rate across all
+// devices, because the instantaneous figures alone mislead: buffered disk
+// writeback arrives as a sub-second burst every dirty-expiry interval, so the
+// write column reads 0 for almost every refresh of a transfer that is in fact
+// keeping up. The history is aggregate rather than per device — a device row
+// has no width to spare in a thirty-column sidebar, and a second line per
+// device would halve the panel's capacity.
+func netPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) panel {
 	type row struct {
 		n     metrics.Network
 		total float64
 	}
 	var rows []row
+	hidden := 0
 	for _, n := range s.Networks {
 		if !n.Up && n.RxRate == 0 && n.TxRate == 0 {
+			continue
+		}
+		// Counted after the idle test, so the tally is what V would bring
+		// back, not every virtual name the kernel knows about.
+		if !showVirtual && devices.VirtualNet(n.Name) {
+			hidden++
 			continue
 		}
 		rows = append(rows, row{n, n.RxRate + n.TxRate})
@@ -106,7 +134,8 @@ func netPanel(s metrics.Snapshot, w, maxRows int) panel {
 	})
 
 	nameW := w - 18
-	p := panel{title: "NETWORK", head: pad("", nameW) + padLeft("rx", 8) + padLeft("tx", 9)}
+	p := panel{title: "NETWORK", note: hiddenNote(hidden),
+		head: pad(hist.sparkRunes(nameW-1, 0), nameW) + padLeft("rx", 8) + padLeft("tx", 9)}
 	for i, r := range rows {
 		if i >= maxRows {
 			break
@@ -118,9 +147,18 @@ func netPanel(s metrics.Snapshot, w, maxRows int) panel {
 	return p
 }
 
-// diskPanel lists block devices by how busy they are.
-func diskPanel(s metrics.Snapshot, w, maxRows int) panel {
-	disks := append([]metrics.Disk(nil), s.Disks...)
+// diskPanel lists block devices by how busy they are. Unless showVirtual is
+// set, the loop and ram devices are left out — see internal/devices.
+func diskPanel(s metrics.Snapshot, hist *ring, w, maxRows int, showVirtual bool) panel {
+	disks := make([]metrics.Disk, 0, len(s.Disks))
+	hidden := 0
+	for _, d := range s.Disks {
+		if !showVirtual && devices.VirtualDisk(d.Name) {
+			hidden++
+			continue
+		}
+		disks = append(disks, d)
+	}
 	sort.Slice(disks, func(i, j int) bool {
 		a := disks[i].ReadRate + disks[i].WriteRate
 		b := disks[j].ReadRate + disks[j].WriteRate
@@ -131,7 +169,8 @@ func diskPanel(s metrics.Snapshot, w, maxRows int) panel {
 	})
 
 	nameW := w - 18
-	p := panel{title: "DISK I/O", head: pad("", nameW) + padLeft("read", 8) + padLeft("write", 9)}
+	p := panel{title: "DISK I/O", note: hiddenNote(hidden),
+		head: pad(hist.sparkRunes(nameW-1, 0), nameW) + padLeft("read", 8) + padLeft("write", 9)}
 	for i, d := range disks {
 		if i >= maxRows {
 			break
@@ -216,4 +255,14 @@ func tempThresholds(s metrics.Sensor) thresholds {
 // percentages.
 func percentless(v float64) string {
 	return trimZero(v)
+}
+
+// hiddenNote is the aside a panel carries when it has left devices out. A
+// monitor that quietly drops rows is worse than one that shows them all, so the
+// count and the key that brings them back are on screen wherever it happens.
+func hiddenNote(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d hidden (V)", n)
 }

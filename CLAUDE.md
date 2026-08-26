@@ -69,6 +69,10 @@ snapshots to what goes over the wire.
 - `internal/query` — read-only reconstruction of per-host views for
   presentation. The stage-5 web front end and stage-6 SSH TUI call it;
   neither writes SQL.
+- `internal/devices` — the one rule for which interfaces and block devices are
+  virtual, shared by the TUI panels and the server's host page, which both hide
+  them by default. **Standard library only.** Collection and storage keep every
+  device; only the display drops them.
 - `internal/metrics` — collection from `/proc`, `/sys`, and the container
   runtime socket. **Standard library only; do not add a dependency here.**
 - `internal/report` — the wire contract between the agent and the server:

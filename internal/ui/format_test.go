@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,24 @@ func TestSparkWidthAndAlignment(t *testing.T) {
 	// An empty history must not divide by a zero peak.
 	if w := lipgloss.Width(newRing(4).spark(6, 0, styOK)); w != 6 {
 		t.Errorf("empty spark width = %d, want 6", w)
+	}
+}
+
+func TestSparkCompressesLongHistory(t *testing.T) {
+	// A history longer than the line is compressed into it, each column keeping
+	// its bucket's maximum. Cutting to the newest samples instead would drop
+	// the one loud sample the history exists to show.
+	r := newRing(60)
+	r.push(900)
+	for i := 0; i < 59; i++ {
+		r.push(1)
+	}
+	s := r.spark(12, 0, styOK)
+	if w := lipgloss.Width(s); w != 12 {
+		t.Errorf("compressed spark width = %d, want 12", w)
+	}
+	if plain := stripStyle(s); !strings.ContainsRune(plain, '█') {
+		t.Errorf("burst lost in compression: %q", plain)
 	}
 }
 

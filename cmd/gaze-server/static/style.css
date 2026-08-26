@@ -129,6 +129,9 @@ tr.stale td:first-child a { color: var(--warn); }
 .ranges a { text-decoration: none; color: var(--dim); }
 .ranges a:hover { color: var(--fg); }
 .ranges .active { color: var(--accent); font-weight: 600; }
+/* The device toggle is a different kind of control from the spans beside it,
+   so it sits at the other end of the row rather than at the end of the list. */
+.ranges .devices { margin-left: auto; }
 
 /* Graphs */
 .graphs {

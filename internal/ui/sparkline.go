@@ -53,19 +53,31 @@ func (r *ring) max() float64 {
 	return m
 }
 
-// spark renders the last width samples as a sparkline scaled to peak.
+// spark renders the whole history as a sparkline scaled to peak.
 //
 // Pass a fixed peak for a metric with a natural ceiling, such as 100 for a
 // percentage, so the line's height means the same thing from one refresh to
 // the next. Pass zero for an open-ended metric such as a byte rate, and the
 // line rescales to its own maximum.
 func (r *ring) spark(width int, peak float64, style lipgloss.Style) string {
+	return style.Render(r.sparkRunes(width, peak))
+}
+
+// sparkRunes is spark without the styling, for embedding in a line that is
+// styled as a whole. A panel heading is padded by rune count, which an escape
+// sequence would throw off.
+func (r *ring) sparkRunes(width int, peak float64) string {
 	if width <= 0 {
 		return ""
 	}
 	vals := r.values()
 	if len(vals) > width {
-		vals = vals[len(vals)-width:]
+		// A history longer than the line is compressed, keeping each bucket's
+		// maximum. Keeping the mean instead would erase exactly the samples the
+		// history exists to show: buffered writeback lands as a one-second
+		// burst between long stretches of zero, and averaging five such
+		// seconds rounds the burst away.
+		vals = maxBuckets(vals, width)
 	}
 	if peak <= 0 {
 		peak = r.max()
@@ -87,5 +99,22 @@ func (r *ring) spark(width int, peak float64, style lipgloss.Style) string {
 			b.WriteRune(sparkChars[i])
 		}
 	}
-	return style.Render(b.String())
+	return b.String()
+}
+
+// maxBuckets reduces vals to width samples, one per even slice of the input,
+// each carrying its slice's largest value. Only called with len(vals) > width,
+// so every slice is non-empty.
+func maxBuckets(vals []float64, width int) []float64 {
+	out := make([]float64, width)
+	for i := range out {
+		m := vals[i*len(vals)/width]
+		for _, v := range vals[i*len(vals)/width : (i+1)*len(vals)/width] {
+			if v > m {
+				m = v
+			}
+		}
+		out[i] = m
+	}
+	return out
 }

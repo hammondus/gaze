@@ -32,10 +32,10 @@
 </p>
 
 <nav class="ranges">
-  {{$id := .ID}}
   {{range .Ranges}}
-  {{if .Active}}<span class="active">{{.Key}}</span>{{else}}<a href="/hosts/{{$id}}?range={{.Key}}">{{.Key}}</a>{{end}}
+  {{if .Active}}<span class="active">{{.Key}}</span>{{else}}<a href="{{.Href}}">{{.Key}}</a>{{end}}
   {{end}}
+  {{if .DeviceLabel}}<a class="devices" href="{{.DeviceHref}}">{{.DeviceLabel}}</a>{{end}}
 </nav>
 
 <div class="graphs">

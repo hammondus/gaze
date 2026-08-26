@@ -28,14 +28,24 @@ func demoSnapshot() metrics.Snapshot {
 		Memory: metrics.Memory{Total: 16 << 30, Used: 11 << 30, Percent: 68.7},
 		Swap:   metrics.Swap{Total: 4 << 30, Used: 1 << 30, Percent: 26.5},
 		Load:   metrics.Load{One: 3.4, Five: 2.9, Fifteen: 2.1},
+		// A container host: one veth per container and a bridge per network,
+		// all of them busier than the wireguard link, and a loop device per
+		// snap. These exist so the default frame is the one a real container
+		// host draws — with the virtual devices hidden.
 		Networks: []metrics.Network{
 			{Name: "eth0", Up: true, RxRate: 1.4 * 1024 * 1024, TxRate: 340 * 1024},
 			{Name: "wg0", Up: true, RxRate: 2048, TxRate: 900},
 			{Name: "lo", Up: true},
+			{Name: "docker0", Up: true, RxRate: 1 << 20, TxRate: 3 << 20},
+			{Name: "br-4f1a2c9e8d31", Up: true, RxRate: 90 << 10, TxRate: 12 << 10},
+			{Name: "veth3a91c07", Up: true, RxRate: 1 << 20, TxRate: 3 << 20},
+			{Name: "vethb52f8de", Up: true, RxRate: 90 << 10, TxRate: 12 << 10},
 		},
 		Disks: []metrics.Disk{
 			{Name: "nvme0n1", ReadRate: 12 * 1024 * 1024, WriteRate: 4 * 1024 * 1024},
 			{Name: "sda", WriteRate: 96 * 1024},
+			{Name: "loop0", ReadRate: 8 << 10},
+			{Name: "loop7", ReadRate: 2 << 10},
 		},
 		Mounts: []metrics.Mount{
 			{Path: "/", Percent: 34.2, Free: 420 << 30},
@@ -689,4 +699,64 @@ func collectOnce(t *testing.T, col *metrics.Collector) metrics.Snapshot {
 	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 	defer cancel()
 	return col.Collect(ctx)
+}
+
+// TestVirtualDevicesHidden covers the V toggle. The demo host is a container
+// host: five of its seven interfaces and two of its four block devices are
+// software, and two of the virtual interfaces carry more traffic than the real
+// tunnel beside them, so sorting alone would not keep them off the screen.
+func TestVirtualDevicesHidden(t *testing.T) {
+	lipgloss.SetColorProfile(0)
+	m := demoModel(160, 40)
+
+	frame := stripStyle(m.View())
+	for _, name := range []string{"docker0", "br-4f1a2c9e8d31", "veth3a91c07", "loop0", "loop7"} {
+		if strings.Contains(frame, name) {
+			t.Errorf("%s is on screen with virtual devices hidden", name)
+		}
+	}
+	// What is left is the hardware and the tunnel, which is the point of the
+	// toggle rather than a side effect of it.
+	for _, name := range []string{"eth0", "wg0", "nvme0n1", "sda"} {
+		if !strings.Contains(frame, name) {
+			t.Errorf("%s is missing from the frame", name)
+		}
+	}
+	// Say what was dropped, and where the key is.
+	for _, note := range []string{"5 hidden (V)", "2 hidden (V)"} {
+		if !strings.Contains(frame, note) {
+			t.Errorf("no %q on screen; the frame does not report what it left out:\n%s", note, frame)
+		}
+	}
+
+	// V brings them back, and the panels stop claiming to hide anything.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("V")})
+	frame = stripStyle(next.(Model).View())
+	for _, name := range []string{"docker0", "veth3a91c07", "loop0"} {
+		if !strings.Contains(frame, name) {
+			t.Errorf("V did not bring %s back", name)
+		}
+	}
+	if strings.Contains(frame, "hidden (V)") {
+		t.Error("a panel still reports hidden devices while they are all on screen")
+	}
+}
+
+// TestDiskPanelHeadSparkline checks the heading carries the aggregate rate
+// history, so a writeback burst that landed between glances is still on
+// screen a minute later instead of surviving only in the refresh it hit.
+func TestDiskPanelHeadSparkline(t *testing.T) {
+	hist := newRing(historyLen)
+	for i := 0; i < historyLen-1; i++ {
+		hist.push(0)
+	}
+	hist.push(100 << 20) // one flush burst, everything else idle
+
+	p := diskPanel(demoSnapshot(), hist, 30, 5, false)
+	if !strings.ContainsRune(p.head, '█') {
+		t.Errorf("no burst in the disk panel heading: %q", p.head)
+	}
+	if !strings.HasSuffix(p.head, "write") {
+		t.Errorf("column labels lost from the heading: %q", p.head)
+	}
 }

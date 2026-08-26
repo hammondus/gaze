@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/hammondus/gaze/internal/alert"
+	"github.com/hammondus/gaze/internal/devices"
 	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
@@ -85,7 +87,19 @@ var ranges = []struct {
 
 type rangeLink struct {
 	Key    string
+	Href   string
 	Active bool
+}
+
+// hostHref builds a link to the host page. Every link on the page goes through
+// it, so a range link keeps the device setting and the device link keeps the
+// range: changing one control must not silently reset the other.
+func hostHref(id int64, rangeKey string, virtual bool) string {
+	q := url.Values{"range": {rangeKey}}
+	if virtual {
+		q.Set("virtual", "1")
+	}
+	return fmt.Sprintf("/hosts/%d?%s", id, q.Encode())
 }
 
 // hostView is everything the detail page shows.
@@ -109,6 +123,15 @@ type hostView struct {
 	Graphs []graph // cpu, load, memory, swap
 	Nets   []graph // one per interface
 	Disks  []graph // one per device
+
+	// The virtual devices are off the page unless ShowVirtual is set: a
+	// container host has one veth and one loop device per container, and
+	// each of them is a graph the size of the one for the real NIC.
+	// DeviceLabel is the toggle's text, empty when there is nothing to
+	// toggle, and DeviceHref the link that flips it.
+	ShowVirtual bool
+	DeviceLabel string
+	DeviceHref  string
 }
 
 func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +170,7 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 	}
 	v.CfgStatus, v.CfgClass = configStatus(v.Cfg.Echoed, v.Cfg.Generation, v.Cfg.Declined)
 
+	v.ShowVirtual = r.URL.Query().Get("virtual") == "1"
 	if key := r.URL.Query().Get("range"); key != "" {
 		for _, rg := range ranges {
 			if rg.Key == key {
@@ -156,7 +180,9 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 	}
 	var span time.Duration
 	for _, rg := range ranges {
-		v.Ranges = append(v.Ranges, rangeLink{Key: rg.Key, Active: rg.Key == v.Range})
+		v.Ranges = append(v.Ranges, rangeLink{
+			Key: rg.Key, Href: hostHref(id, rg.Key, v.ShowVirtual), Active: rg.Key == v.Range,
+		})
 		if rg.Key == v.Range {
 			span = rg.Span
 		}
@@ -187,7 +213,12 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	hidden := 0
 	for _, n := range nets {
+		if !v.ShowVirtual && devices.VirtualNet(n.Name) {
+			hidden++
+			continue
+		}
 		v.Nets = append(v.Nets, buildGraph("net "+n.Name+" — rx / tx", from, to, 0, fmtYRate, false,
 			series{class: "a", points: netPoints(n.Points, false)},
 			series{class: "b", points: netPoints(n.Points, true)}))
@@ -199,10 +230,15 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range disks {
+		if !v.ShowVirtual && devices.VirtualDisk(d.Name) {
+			hidden++
+			continue
+		}
 		v.Disks = append(v.Disks, buildGraph("disk "+d.Name+" — read / write", from, to, 0, fmtYRate, false,
 			series{class: "a", points: diskPoints(d.Points, false)},
 			series{class: "b", points: diskPoints(d.Points, true)}))
 	}
+	v.DeviceLabel, v.DeviceHref = deviceToggle(id, v.Range, v.ShowVirtual, hidden)
 
 	s.render(w, r, "host", page{Title: v.Name, Authed: true, Data: v})
 }
@@ -334,4 +370,23 @@ func (s *webServer) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		Authed: true,
 		Data:   enrollData{Name: name, Token: token},
 	})
+}
+
+// deviceToggle returns the text and link of the virtual-device control, and an
+// empty label when there is nothing to say: a host with no virtual devices
+// gets no control, because a page that offers to show nothing reads as a page
+// that is hiding something.
+//
+// hidden is how many graphs were left out, so the link says what it will cost
+// before you follow it. A host with sixty containers is a long page.
+func deviceToggle(id int64, rangeKey string, showing bool, hidden int) (label, href string) {
+	switch {
+	case showing:
+		return "hide virtual devices", hostHref(id, rangeKey, false)
+	case hidden == 1:
+		return "show 1 virtual device", hostHref(id, rangeKey, true)
+	case hidden > 1:
+		return fmt.Sprintf("show %d virtual devices", hidden), hostHref(id, rangeKey, true)
+	}
+	return "", ""
 }

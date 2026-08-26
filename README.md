@@ -17,13 +17,13 @@ CPU   █████████▎────────────    42% 
 LOAD  █████████▎────────────    42%   ▁▁▂▃▄▄▃▃▂▂▃▃▃  SWAP  █████▊────────────────    26%   ▁▁▂▂▃▃▂▂▂▂▃▃▃
 8 cores · load 3.40 2.90 2.10 · 11G of 16G used · 412 tasks, 1183 threads · 1 zombie · 6.1% iowait
 
-NETWORK                         NAME                 STATE      UPTIME  ▾CPU%     MEM COMMAND
+NETWORK           5 hidden (V)  NAME                 STATE      UPTIME  ▾CPU%     MEM COMMAND
                   rx       tx   pgdata               running      6d4h    18%    2.0G postgres -c share…
 eth0          1.4M/s   340K/s   edge-proxy           running      6d3h   0.4%     48M nginx -g 'daemon …
 wg0           2.0K/s   900B/s
-lo               0/s      0/s       PID USER        ▾CPU%   MEM%     RSS COMMAND
+                                    PID USER        ▾CPU%   MEM%     RSS COMMAND
                                    2841 postgres      18%    12%    2.0G postgres: writer process
-DISK I/O                           1102 craig         12%   8.9%    1.5G /usr/lib/firefox/firefox --pro…
+DISK I/O          2 hidden (V)     1102 craig         12%   8.9%    1.5G /usr/lib/firefox/firefox --pro…
                 read    write       331 root         2.2%   0.4%     68M /usr/lib/systemd/systemd-journ…
 nvme0n1        12M/s   4.0M/s      7734 craig        1.4%   2.1%    350M go build ./...
 sda              0/s    96K/s       883 root         0.9%   1.2%    190M /usr/bin/dockerd -H fd://
@@ -39,8 +39,9 @@ q quit  c/m/s/t/p sort:cpu  v view:split  K kthreads:off  / filter  ␣ pause  ?
 
 - CPU, load, memory, and swap gauges, each with a minute of history
 - Per-core CPU gauges
-- Network throughput per interface
-- Disk throughput per device
+- Network throughput per interface, with the container runtime's bridges and
+  veths hidden until you press `V`
+- Disk throughput per device, with the loop devices hidden until you press `V`
 - Filesystem usage
 - Temperatures, fan speeds, and battery charge
 - Container CPU, memory, disk I/O, network, uptime, and PID count, from Docker
@@ -137,6 +138,7 @@ gaze
 | `v` | Cycle the split, container, and process views |
 | `1` | Toggle per-core gauges |
 | `K` | Show or hide kernel threads, which start hidden |
+| `V` | Show or hide virtual devices — loop, veth, bridges — which start hidden |
 | `/` | Filter processes by name or command line |
 | `space` | Pause collection |
 | `+`, `-` | Halve or double the refresh interval |
@@ -199,7 +201,9 @@ beside the mean so spikes survive aggregation. It serves a web front end
 over them: a host list that tells a reporting host from a stale one from
 one that has never reported, and per-host graphs — server-rendered SVG, no
 JavaScript — with tables for filesystems, containers, and the busiest
-processes. It can also serve the TUI over SSH — see
+processes. The host page hides the virtual devices as the dashboard does, and
+says how many; the link that shows them keeps the time range you were on. It
+can also serve the TUI over SSH — see
 [The SSH view](#the-ssh-view).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
@@ -393,6 +397,7 @@ still planned, see [ROADMAP.md](ROADMAP.md).
 | `internal/report` | The wire contract between agent and server. Standard library only. |
 | `internal/store` | The server's schema, migrations, and every write |
 | `internal/query` | Read-only reconstruction of per-host views |
+| `internal/devices` | Which interfaces and block devices are virtual. Standard library only. |
 | `internal/alert` | Threshold rules, staleness, and mail on transitions |
 | `internal/ui` | Bubble Tea model, panels, and formatting |
 | `internal/update` | `--update` and `--check-update` |

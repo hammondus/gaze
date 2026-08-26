@@ -19,7 +19,8 @@ import (
 
 // historyLen is how many samples the sparklines keep. At the default one
 // second refresh that is a minute of history, which is long enough to show a
-// spike you just missed and short enough to stay narrow.
+// spike you just missed. A line narrower than this compresses the history to
+// fit rather than cutting it — see sparkRunes.
 const historyLen = 60
 
 // collectTimeout bounds one collection. Reading /proc cannot hang, but the
@@ -81,6 +82,7 @@ type Model struct {
 	sort       sortKey
 	ctrSort    ctrSort
 	hideKernel bool
+	hideVirt   bool
 	filter     string
 	typing     bool // the filter prompt has the keyboard
 	paused     bool
@@ -105,12 +107,17 @@ type Model struct {
 // memory, and on a typical host outnumber everything you started by an order
 // of magnitude, so showing them by default buries the process table. The
 // context line always reports how many are hidden, and K brings them back.
+//
+// Virtual interfaces and block devices start hidden for the same reason: a
+// container host has one veth and one loop device per container, and they bury
+// the hardware. The panel reports how many it left out, and V brings them back.
 func New(source Source, interval time.Duration) Model {
 	return Model{
 		source:     source,
 		interval:   interval,
 		sort:       sortCPU,
 		hideKernel: true,
+		hideVirt:   true,
 		cpuHist:    newRing(historyLen),
 		memHist:    newRing(historyLen),
 		loadHist:   newRing(historyLen),
@@ -248,6 +255,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// shifted key.
 		m.hideKernel = !m.hideKernel
 		m.cursor, m.offset = 0, 0
+	case "V":
+		// Lower-case v cycles the view, so the device toggle takes the shifted
+		// key, as K does.
+		m.hideVirt = !m.hideVirt
 	case "?", "h":
 		m.showHelp = !m.showHelp
 	case " ":
@@ -442,7 +453,11 @@ func (m Model) sidebar(w, h int) string {
 	// Each panel is built with more rows than the column can hold, then cut to
 	// what it is given. The builders sort before they truncate, so cutting the
 	// finished list keeps the same rows as building a shorter one would.
-	ps := []panel{netPanel(m.snap, w, h), diskPanel(m.snap, w, h), fsPanel(m.snap, w, h)}
+	ps := []panel{
+		netPanel(m.snap, m.netHist, w, h, !m.hideVirt),
+		diskPanel(m.snap, m.diskHist, w, h, !m.hideVirt),
+		fsPanel(m.snap, w, h),
+	}
 	if len(m.snap.Sensors) > 0 {
 		ps = append(ps, sensorPanel(m.snap, w, h))
 	}
@@ -759,8 +774,8 @@ func bandColumns(n, width int) (cols, colWidth int) {
 // panels builds the first n panels in fixed order.
 func (m Model) panels(n, colW, maxRows int) []panel {
 	all := []panel{
-		netPanel(m.snap, colW, maxRows),
-		diskPanel(m.snap, colW, maxRows),
+		netPanel(m.snap, m.netHist, colW, maxRows, !m.hideVirt),
+		diskPanel(m.snap, m.diskHist, colW, maxRows, !m.hideVirt),
 		fsPanel(m.snap, colW, maxRows),
 	}
 	if len(m.snap.Sensors) > 0 {
@@ -840,6 +855,7 @@ func (m Model) helpView() string {
 		{"c, m, t, i, n", "sort containers by cpu, memory, uptime, disk io, name"},
 		{"1", "toggle per-core gauges"},
 		{"K", "show or hide kernel threads"},
+		{"V", "show or hide virtual devices: loop, veth, and bridges"},
 		{"/", "filter processes by name or command line"},
 		{"space", "pause collection"},
 		{"+, -", "halve or double the refresh interval"},

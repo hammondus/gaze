@@ -222,6 +222,55 @@ Change any of these by editing the lists at the top of `mounts.go`. There is no
 configuration file, and adding one would be the wrong trade for a program whose
 whole point is that it is a single file with no state.
 
+## Virtual devices are hidden by the display, not by the collector
+
+A container host builds one veth per container, one `br-` bridge per
+user-defined network, and one loop device per image layer or snap. Thirty
+containers is thirty interfaces above the one NIC that carries the traffic, and
+the bridge and veth figures are the same bytes counted again on their way past
+it. The unused-device filter above does not help: these devices are busy. On
+the web page it is worse than clutter — each one is a full SVG graph, so the
+host page's length is set by the container count.
+
+So both front ends leave them out, and both say so where it happens. The
+dashboard's panel title carries `5 hidden (V)` and `V` brings them back — the
+same shape as `K` and kernel threads, down to taking the shifted key because
+the lower-case one is already a command. The host page's link reads `show 5
+virtual devices` and sets `?virtual=1`; a host with none gets no link, because
+a control that offers to show nothing reads as a page hiding something. Every
+link on the host page is built by `hostHref`, so changing the range keeps the
+device setting and changing the device setting keeps the range.
+
+Three decisions inside that:
+
+- **The filter is in the front ends, not in `internal/metrics`.** The collector
+  keeps reporting every device and the store keeps every one, so the agent
+  still ships them and a stored report can still be asked what a bridge was
+  doing. Hiding at collection would make the toggle a restart, and would decide
+  for the server what the fleet is allowed to have recorded.
+- **The rule itself is `internal/devices`**, a package of two predicates and no
+  dependencies. It is shared because `internal/ui` and `cmd/gaze-server`'s web
+  pages both need it and neither owns it; a copy in each would drift, and the
+  terminal and the web would then disagree about what a host has. It cannot
+  live in `internal/query` either, which must keep returning everything for the
+  toggle to have anything to turn back on.
+- **The rule is a list of names known to be virtual**, rather than a list of
+  names known to be hardware. Both are lists that go stale, but they fail in
+  opposite directions. An unrecognised virtual prefix leaves one extra device
+  on screen, which is what happens today anyway; an unrecognised NIC name
+  matched against a list of real ones takes a live interface off the screen
+  along with the traffic on it. `wg0`, `tun0`, and `tap0` are therefore not on
+  the list: they are software, but what moves over them is a real link to
+  somewhere else. Neither are `dm-`, `md`, and `zram`, which are where the
+  writes of an LVM, RAID, or compressed-swap system actually appear.
+
+`/sys/class/net/<name>/device` would have been a fact rather than a guess — it
+exists only for an interface with hardware behind it. It was not used because
+neither the SSH front end nor the web pages have a `/sys` to consult: they
+render stored reports, where a name is the only fact they hold. It also calls a
+bond, a VLAN, and a wireguard tunnel virtual, which is true of the
+implementation and wrong about what the reader wants to see.
+
 ## Docker over the socket, not the SDK
 
 `internal/metrics/docker.go` talks to the daemon with `net/http` over a custom
@@ -485,6 +534,35 @@ Three mechanisms enforce this:
 Anything already carrying colour goes through `clipWidth`, which measures
 display width. The plain helpers in `format.go` count runes, and a rune count
 of a styled string counts the escape sequences too.
+
+## The device panels carry a sparkline, and it compresses by maximum
+
+The network and disk panels show per-refresh rates, and for buffered disk I/O
+the per-refresh rate is a truthful number that reads as a lie. The kernel
+absorbs a steady write stream into the page cache and flushes it as a
+sub-second burst every dirty-expiry interval, so a transfer that is keeping up
+renders as a write column that says `0/s` on almost every refresh — the burst
+lands in one frame and is gone before the eye catches it. Watching an scp
+arrive at 4M/s over a disk column full of zeros was the motivating case, and
+glances misleads the same way for the same reason.
+
+The fix is history, not smoothing. A rolling average would replace one
+misleading number with another — a burst diluted across thirty seconds looks
+like a trickle. Instead each panel's heading line carries a sparkline of the
+summed rate across its devices, drawn in the blank space left of the column
+labels, so it costs no rows. The history is aggregate rather than per device:
+a device row in a thirty-column sidebar has no width to spare, and a second
+line per device would halve the panel's capacity for the machines with one
+busy disk that are the common case.
+
+The sparkline ring holds sixty samples but the line is usually narrower, and
+how the extra samples are dropped is the decision that matters. Cutting to the
+newest samples — what `spark` originally did — shows fourteen seconds and
+discards the burst it exists to show. Averaging into buckets rounds the burst
+away. Each bucket keeps its maximum instead, so one loud sample stays a full
+bar wherever it falls in the minute. The rescale applies to the gauge
+sparklines too, which had been quietly showing a quarter of the history the
+comment beside `historyLen` promised.
 
 ## Sort ties break on a second column
 
