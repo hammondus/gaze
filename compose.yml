@@ -35,7 +35,10 @@ services:
       - GAZE_ALERT_TO
     volumes:
       # A named volume rather than a bind mount: the container runs as its
-      # own unprivileged user, and the volume inherits that ownership.
+      # own unprivileged user (uid 65532, distroless's `nonroot`), and the
+      # volume inherits that ownership on FIRST mount only. A volume created
+      # against an older image keeps the old ownership and the server then
+      # cannot open the database — `docker compose down -v` and re-enrol.
       - gaze-data:/data
 
 volumes:
