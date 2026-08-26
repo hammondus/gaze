@@ -12,8 +12,8 @@ each alternative lost, and it is the file to update when you make such a choice.
 `ROADMAP.md` lists the stages the project is being built in, and which are
 done. gaze is three binaries: the TUI, an agent, and a server that stores
 reports from several hosts and presents them over HTTP and SSH. Stages 1 to
-8 are built; check the roadmap for what is not (Windows collection, and the
-`hammondus/mfa` publication step).
+8 are built; only stage 9 (Windows collection) is not, and it is not
+scheduled.
 
 ## Commands
 
@@ -59,8 +59,6 @@ snapshots to what goes over the wire.
   binary renders, fed by `query.LatestSnapshot`), and the `enroll` and
   `admin reset` subcommands. Needs `GAZE_KEY` in the environment. Ships as
   a container image (`Dockerfile`, `compose.yml`), never a release asset.
-  Until `hammondus/mfa` is published, building needs the git-ignored
-  `go.work` (see the note in go.mod); the Docker build does not work yet.
 - `internal/store` — the server's schema, forward-only migrations, and every
   write: enrolment, ingest, roll-up, retention, alert state. SQLite through
   `modernc.org/sqlite`, the server's one storage dependency.

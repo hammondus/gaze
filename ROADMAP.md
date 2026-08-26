@@ -10,10 +10,7 @@ Each stage is meant to stand on its own: the tree builds, the tests pass, and
 nothing half-finished is left behind a flag. Stages 1 to 3 give you something
 useful on your own hosts before any of the hard parts.
 
-**Status:** stages 1 to 8 done, except that stage 5's `hammondus/mfa`
-dependency still resolves through a local `go.work`: publish the module,
-pin it in go.mod, and delete go.work before the server image can build.
-Stage 9 is not scheduled.
+**Status:** stages 1 to 8 done. Stage 9 is not scheduled.
 
 ---
 
@@ -112,12 +109,11 @@ database size matches the estimate in DESIGN-DECISIONS to within a factor of two
 ## Stage 5 — Server: web front end
 
 - [x] Admin login: password (Argon2id) plus mandatory TOTP through
-      `github.com/hammondus/mfa`, following `mfademo`'s session and lockout
-      pattern. `mfa` did not resolve, so it rides a git-ignored `go.work`
-      until it is published — see the note in go.mod. Schema supports
-      several admin accounts; the setup flow only provisions one for now.
-      Recovery is `gaze-server admin reset`, not recovery codes — see
-      DESIGN-DECISIONS.
+      `github.com/hammondus/mfa` v0.1.0, following `mfademo`'s session and
+      lockout pattern. (It rode a git-ignored `go.work` until publication;
+      it is pinned in go.mod now.) Schema supports several admin accounts;
+      the setup flow only provisions one for now. Recovery is
+      `gaze-server admin reset`, not recovery codes — see DESIGN-DECISIONS.
 - [x] Session cookies `Secure` and `HttpOnly`; no page renders host data to a
       request without a valid session.
 - [x] Host enrolment (authenticated): a page over the stage-4 `enroll` path —
