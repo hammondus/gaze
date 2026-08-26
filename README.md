@@ -345,6 +345,23 @@ make release  # build dist/gaze-linux-{arm64,amd64} and SHA256SUMS
 make publish  # create a GitHub release for the current tag and attach the artifacts
 ```
 
+### Cutting a release
+
+```sh
+git tag -a v0.4.0 -m "What changed since the last tag"
+git push origin master --tags
+make clean && make publish
+```
+
+Tag before building: the binaries embed their version at build time
+from `git describe --tags`, and `--check-update` compares that embedded
+version against the latest release, so a binary built before the tag
+reports itself out of date forever. The `make clean` is what enforces
+the order — the release targets rebuild only when a `.go` file is newer
+than the existing `dist/` binaries, and tagging touches no `.go` file,
+so without it a publish can attach binaries built before the tag with
+the wrong version inside.
+
 `make publish` needs the `gh` CLI, a clean working tree, and a tag on
 `HEAD`; it refuses to run otherwise. It rebuilds the artifacts, then
 creates the release with generated notes. The asset names are a
