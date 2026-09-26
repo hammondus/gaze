@@ -472,12 +472,13 @@ than a fallback to apologise for.
 The sensor panel is dropped when the sidebar is too short to give all four
 panels two rows each. Three lists you can read beat four that are mostly title.
 
-## Three container views on one key
+## Four container views on one key
 
-Containers get three amounts of the main column, cycled with `v`: a table above
-the process list, the whole column, or none of it.
+Containers get four amounts of the main column, cycled with `v`: a short table
+above the process list, every running container with processes below, the
+whole column, or none of it.
 
-They are one key rather than three because they are points on a single axis —
+They are one key rather than four because they are points on a single axis —
 how much of the screen containers deserve — and a cycle makes that legible in
 the footer, which always names the current view. The sidebar does not change
 between them: it holds nothing to do with containers, so there is nothing for
@@ -485,9 +486,23 @@ the cycle to move.
 
 The split view is the default, and its table is sized to the number of
 containers running, so a host with none looks exactly like the process view
-without being told to. The container view is the only one that shows containers
-which are not running, and the only one with a cursor: the split view's table is
-a readout, not a list you move through.
+without being told to. Its cap — a quarter of the column — is what the
+container-first view exists to lift: there every running container gets a
+row, and the process table keeps whatever is left, down to a two-line stub.
+`minProcRows` does not protect processes in that view, because the view
+promises them only if there is room, and cutting a container to pad a table
+the user demoted would invert the choice the keypress made. The container
+view is the only one that shows containers which are not running, and the
+only one with a cursor: the split views' tables are a readout, not a list
+you move through.
+
+The table opens with a CONTAINERS title. In the split views it sits directly
+above the process table, and two blocks of the same figures need naming.
+The title also carries the count left off screen ("3 of 12 (v)") under the
+same rule as the panels' hidden note and the context line's kernel count: a
+monitor that quietly drops rows is worse than one that says so. The `(v)`
+hint is dropped in the dedicated view, where only height cuts the list and
+`v` leads away from containers.
 
 Containers used to have a fourth home, a panel in the band beside network and
 disk. The sidebar that replaced the band is too narrow to say anything useful

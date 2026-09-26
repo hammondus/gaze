@@ -29,7 +29,7 @@ const collectTimeout = 3 * time.Second
 
 // viewMode is how much of the main column containers get.
 //
-// The three are cycled with one key rather than bound to three, because they
+// The four are cycled with one key rather than bound to four, because they
 // are points on a single axis: how much of the screen containers deserve. On a
 // host running none, the cycle still works and the container view says so.
 type viewMode int
@@ -38,6 +38,9 @@ const (
 	// viewSplit is the default: containers take a short table above the
 	// process list, and only when there are running containers to show.
 	viewSplit viewMode = iota
+	// viewCtrSplit inverts the split: every running container gets a row,
+	// and the process list keeps whatever height is left.
+	viewCtrSplit
 	// viewContainers gives containers the whole main column, and is the only
 	// view that shows containers which are not running.
 	viewContainers
@@ -46,11 +49,11 @@ const (
 )
 
 func (v viewMode) name() string {
-	return [...]string{"split", "containers", "processes"}[v]
+	return [...]string{"split", "containers+", "containers", "processes"}[v]
 }
 
 // next cycles to the following view.
-func (v viewMode) next() viewMode { return (v + 1) % 3 }
+func (v viewMode) next() viewMode { return (v + 1) % 4 }
 
 // snapshotMsg carries a finished collection back to the update loop.
 type snapshotMsg metrics.Snapshot
@@ -428,19 +431,36 @@ func (m Model) mainColumn(w, h int) (string, int) {
 	// The container table costs space only when there are containers to put in
 	// it. Its empty states belong to the dedicated view, which has the room to
 	// say which of the three reasons applies.
+	//
+	// A useful table is three lines: the title, the header, and a row, which
+	// is where the +2 and the floor of 3 come from.
 	ctrRows := 0
-	if m.view == viewSplit {
+	if m.view == viewSplit || m.view == viewCtrSplit {
 		n := len(filterContainers(m.snap.Containers, m.filter, m.ctrSort, false))
-		if spare := h - minProcRows - 1; n > 0 && spare > 1 {
+		switch {
+		case n == 0:
+		case m.view == viewSplit:
 			// Containers take the smaller share. The split view exists to keep
 			// an eye on them, not to replace the container view.
-			ctrRows = min(n+1, min(spare, max(2, h/4)))
+			if spare := h - minProcRows - 1; spare > 2 {
+				ctrRows = min(n+2, min(spare, max(3, h/4)))
+			}
+		default:
+			// Container-first: every running container gets a row, and the
+			// process table keeps what is left. minProcRows does not apply —
+			// this view promises processes only if there is room, so a
+			// two-line stub beats dropping them, and dropping them beats
+			// cutting a container.
+			ctrRows = min(n+2, h)
 		}
 	}
 	if ctrRows == 0 {
 		return m.processes(w, h), h
 	}
 	procRows := h - ctrRows - 1
+	if procRows < 2 {
+		return m.containerTable(w, h, false), 1
+	}
 	return m.containerTable(w, ctrRows, false) + "\n\n" + m.processes(w, procRows), procRows
 }
 
@@ -561,36 +581,57 @@ func (m Model) View() string {
 // containerTable renders the container list into a column of the given width.
 // showStopped is set only for the dedicated view, which is the one with room to
 // spare.
+//
+// The table opens with a CONTAINERS title. In the split views it sits directly
+// above the process table, and two blocks of the same figures need naming.
+// The title also carries the count of containers left off screen — the same
+// honesty rule as the panels' hidden note — with the key that reaches a view
+// with more room, except in the dedicated view, where only height cuts the
+// list and v leads away from containers.
 func (m Model) containerTable(w, rows int, showStopped bool) string {
+	title := func(note string) string {
+		return spread(styTitle.Render("CONTAINERS"), styLabel.Render(note), w)
+	}
+
 	// Every one of these lines carries colour, so each is clipped by display
 	// width rather than by rune count.
 	//
 	// Switched off and not found are different facts, and reporting one as the
 	// other sends you looking for a daemon problem you do not have.
 	if m.snap.ContainersDisabled {
-		return clipWidth(styLabel.Render("container collection is switched off"), w) + "\n" +
+		return title("") + "\n" +
+			clipWidth(styLabel.Render("container collection is switched off"), w) + "\n" +
 			clipWidth(styFaint.Render("restart without -containers=false to enable it"), w)
 	}
 	if m.snap.ContainerRuntime == "" {
-		return clipWidth(styLabel.Render("no container runtime reachable"), w) + "\n" +
+		return title("") + "\n" +
+			clipWidth(styLabel.Render("no container runtime reachable"), w) + "\n" +
 			clipWidth(styFaint.Render("looked for docker.sock and podman.sock"), w)
 	}
 	cs := filterContainers(m.snap.Containers, m.filter, m.ctrSort, showStopped)
 	if len(cs) == 0 {
 		if m.filter != "" {
-			return clipWidth(styLabel.Render("no containers match "+m.filter), w)
+			return title("") + "\n" + clipWidth(styLabel.Render("no containers match "+m.filter), w)
 		}
-		return clipWidth(styLabel.Render("no containers running on "+m.snap.ContainerRuntime), w)
+		return title("") + "\n" + clipWidth(styLabel.Render("no containers running on "+m.snap.ContainerRuntime), w)
 	}
 
-	// The split view's table is a readout, not a list you move through, so it
+	note := ""
+	if shown := rows - 2; shown < len(cs) { // the title and header cost two
+		note = fmt.Sprintf("%d of %d", max(shown, 0), len(cs))
+		if !showStopped {
+			note += " (v)"
+		}
+	}
+
+	// The split views' table is a readout, not a list you move through, so it
 	// draws no cursor.
 	cursor, offset := m.ctrCur, m.ctrOff
 	if !showStopped {
 		cursor, offset = -1, 0
 	}
-	lines, _ := ctrTable.render(cs, w, rows, int(m.ctrSort), cursor, offset)
-	return strings.Join(lines, "\n")
+	lines, _ := ctrTable.render(cs, w, rows-1, int(m.ctrSort), cursor, offset)
+	return title(note) + "\n" + strings.Join(lines, "\n")
 }
 
 // header renders the title bar.
@@ -630,24 +671,11 @@ func (m Model) meters() string {
 	if colW < 24 {
 		colW = m.width
 	}
-	sparkW := 0
-	if colW >= 46 {
-		sparkW = 14
-	}
-	meterW := colW - sparkW - 2
 
-	line := func(label string, pct float64, th thresholds, hist *ring, peak float64) string {
-		s := meter(label, pct, meterW, 5, 6, th)
-		if sparkW > 0 {
-			s += "  " + hist.spark(sparkW, peak, th.styleFor(pct))
-		}
-		return s
-	}
-
-	leftA := line("CPU", m.snap.CPU.Busy, thCPU, m.cpuHist, 100)
-	leftB := line("LOAD", m.loadPercent(), thLoad, m.loadHist, 100)
-	rightA := line("MEM", m.snap.Memory.Percent, thMem, m.memHist, 100)
-	rightB := line("SWAP", m.snap.Swap.Percent, thSwap, m.swapHist, 100)
+	leftA := m.meterLine("CPU", m.snap.CPU.Busy, thCPU, m.cpuHist, colW)
+	leftB := m.meterLine("LOAD", m.loadPercent(), thLoad, m.loadHist, colW)
+	rightA := m.meterLine("MEM", m.snap.Memory.Percent, thMem, m.memHist, colW)
+	rightB := m.meterLine("SWAP", m.snap.Swap.Percent, thSwap, m.swapHist, colW)
 
 	if colW == m.width { // too narrow to sit side by side
 		return strings.Join([]string{leftA, rightA, leftB, rightB, m.context()}, "\n")
@@ -656,6 +684,21 @@ func (m Model) meters() string {
 	band := lipgloss.JoinHorizontal(lipgloss.Top,
 		col.Render(leftA+"\n"+leftB), "  ", col.Render(rightA+"\n"+rightB))
 	return band + "\n" + m.context()
+}
+
+// meterLine renders one labelled gauge in a column of the given width, with
+// its minute of history beside it when the column can hold both. Every gauge
+// it draws is a percentage, so the sparkline peak is fixed at 100.
+func (m Model) meterLine(label string, pct float64, th thresholds, hist *ring, colW int) string {
+	sparkW := 0
+	if colW >= 46 {
+		sparkW = 14
+	}
+	s := meter(label, pct, colW-sparkW-2, 5, 6, th)
+	if sparkW > 0 {
+		s += "  " + hist.spark(sparkW, 100, th.styleFor(pct))
+	}
+	return s
 }
 
 // loadPercent expresses the one-minute load average as a share of the
@@ -698,6 +741,11 @@ func (m Model) context() string {
 }
 
 // perCoreMeters renders one small gauge per core, in as many columns as fit.
+//
+// The grid replaces the one CPU line, not the whole band: LOAD, MEM, and SWAP
+// keep their gauges under it, three across where the width allows and stacked
+// where it does not. Losing them was the old behaviour, and it made 1 a trade
+// instead of a zoom.
 func (m Model) perCoreMeters() string {
 	cores := m.snap.PerCPU
 	if len(cores) == 0 {
@@ -715,7 +763,22 @@ func (m Model) perCoreMeters() string {
 		}
 		lines[r] += meter(strings.TrimPrefix(c.Name, "cpu"), c.Busy, cellW-1, 3, 6, thCPU)
 	}
-	return strings.Join(lines, "\n") + "\n" + m.context()
+	grid := strings.Join(lines, "\n")
+
+	colW := (m.width - 4) / 3
+	if colW < 24 {
+		return strings.Join([]string{grid,
+			m.meterLine("LOAD", m.loadPercent(), thLoad, m.loadHist, m.width),
+			m.meterLine("MEM", m.snap.Memory.Percent, thMem, m.memHist, m.width),
+			m.meterLine("SWAP", m.snap.Swap.Percent, thSwap, m.swapHist, m.width),
+			m.context()}, "\n")
+	}
+	col := lipgloss.NewStyle().Width(colW).MaxWidth(colW)
+	band := lipgloss.JoinHorizontal(lipgloss.Top,
+		col.Render(m.meterLine("LOAD", m.loadPercent(), thLoad, m.loadHist, colW)), "  ",
+		col.Render(m.meterLine("MEM", m.snap.Memory.Percent, thMem, m.memHist, colW)), "  ",
+		col.Render(m.meterLine("SWAP", m.snap.Swap.Percent, thSwap, m.swapHist, colW)))
+	return grid + "\n" + band + "\n" + m.context()
 }
 
 // bandMinColWidth is the narrowest a panel column may be. Below this the
@@ -850,7 +913,7 @@ func (m Model) helpView() string {
 	b.WriteString(styTitle.Render("gaze") + "\n\n")
 	for _, k := range [][2]string{
 		{"q, esc", "quit"},
-		{"v", "cycle the split, container, and process views"},
+		{"v", "cycle the split, container-first, container, and process views"},
 		{"c, m, s, t, p, n, u", "sort processes by cpu, memory, swap, time, pid, name, user"},
 		{"c, m, t, i, n", "sort containers by cpu, memory, uptime, disk io, name"},
 		{"1", "toggle per-core gauges"},

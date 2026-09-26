@@ -125,11 +125,13 @@ func demoModel(w, h int) Model {
 func TestViewFitsTerminal(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {90, 24}, {100, 30}, {120, 40}, {200, 60}, {60, 20}, {40, 15}} {
 		m := demoModel(size[0], size[1])
-		for _, variant := range []string{"default", "percore", "filtered", "procs", "containers", "nodocker", "nosensors"} {
+		for _, variant := range []string{"default", "percore", "filtered", "procs", "ctrsplit", "containers", "nodocker", "nosensors"} {
 			mm := m
 			switch variant {
 			case "procs":
 				mm.view = viewProcs
+			case "ctrsplit":
+				mm.view = viewCtrSplit
 			case "containers":
 				mm.view = viewContainers
 			case "nodocker":
@@ -163,7 +165,7 @@ func TestViewFitsHeight(t *testing.T) {
 	// The last two are smaller than the header, gauges, and footer together.
 	// Nothing is readable there, but the frame must still not overrun.
 	for _, size := range [][2]int{{80, 24}, {90, 24}, {120, 40}, {200, 60}, {100, 20}, {120, 14}, {40, 8}, {20, 6}} {
-		for _, v := range []viewMode{viewSplit, viewContainers, viewProcs} {
+		for _, v := range []viewMode{viewSplit, viewCtrSplit, viewContainers, viewProcs} {
 			m := demoModel(size[0], size[1])
 			m.view = v
 			if h := lipgloss.Height(m.View()); h > size[1] {
@@ -266,6 +268,22 @@ func TestViewCycle(t *testing.T) {
 	}
 
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	ctrFirst := next.(Model)
+	if ctrFirst.view != viewCtrSplit {
+		t.Fatalf("v gave %s, want containers+", ctrFirst.view.name())
+	}
+	out = stripStyle(ctrFirst.View())
+	// The container-first view keeps both tables and every running container.
+	if !strings.Contains(out, "  PID ") {
+		t.Error("the container-first view should keep the process table when there is room")
+	}
+	for _, name := range []string{"pgdata", "edge-proxy"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("the container-first view is missing the running container %s", name)
+		}
+	}
+
+	next, _ = ctrFirst.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	ctr := next.(Model)
 	if ctr.view != viewContainers {
 		t.Fatalf("v gave %s, want containers", ctr.view.name())
@@ -294,10 +312,57 @@ func TestViewCycle(t *testing.T) {
 		}
 	}
 
-	// A third press returns to the start.
+	// A fourth press returns to the start.
 	next, _ = procs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	if next.(Model).view != viewSplit {
 		t.Error("v did not cycle back to the split view")
+	}
+}
+
+// TestContainerTableTitle checks the table names itself and owns up to what it
+// cut: two stacked tables of the same figures need a label, and a truncated
+// list must say so rather than posing as complete.
+func TestContainerTableTitle(t *testing.T) {
+	m := demoModel(160, 40)
+
+	if out := stripStyle(m.View()); !strings.Contains(out, "CONTAINERS") {
+		t.Error("no CONTAINERS title in the split view")
+	}
+
+	// Three rows hold the title, the header, and one of the two running
+	// containers, so the title reports the cut and the key that grows the view.
+	if out := stripStyle(m.containerTable(80, 3, false)); !strings.Contains(out, "1 of 2 (v)") {
+		t.Errorf("no truncation note in a cut split table:\n%s", out)
+	}
+	// The dedicated view is cut only by height, and v leads away from
+	// containers, so the note drops the key hint.
+	out := stripStyle(m.containerTable(80, 3, true))
+	if !strings.Contains(out, "1 of 4") || strings.Contains(out, "(v)") {
+		t.Errorf("dedicated view note wrong:\n%s", out)
+	}
+	// A table with room for everything claims nothing.
+	if out := stripStyle(m.containerTable(80, 10, false)); strings.Contains(out, " of ") {
+		t.Errorf("truncation note on a complete table:\n%s", out)
+	}
+}
+
+// TestPerCoreKeepsGauges checks that 1 swaps the CPU line for the grid without
+// costing the other gauges.
+func TestPerCoreKeepsGauges(t *testing.T) {
+	m := demoModel(120, 40)
+	m.perCore = true
+	m.snap.PerCPU = make([]metrics.CPU, 8)
+	for i := range m.snap.PerCPU {
+		m.snap.PerCPU[i] = metrics.CPU{Name: "cpu" + string(rune('0'+i)), Busy: float64(i * 12)}
+	}
+	for _, width := range []int{120, 60} { // three across, and stacked
+		m.width = width
+		out := stripStyle(m.meters())
+		for _, label := range []string{"LOAD", "MEM", "SWAP"} {
+			if !strings.Contains(out, label) {
+				t.Errorf("width %d: per-core view lost the %s gauge", width, label)
+			}
+		}
 	}
 }
 
