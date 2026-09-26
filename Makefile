@@ -81,11 +81,21 @@ publish: release ## Attach the artifacts to a GitHub release for the current tag
 
 # Only Linux targets: there is nothing to ship for macOS or Windows, because
 # the metrics come from /proc.
-$(DIST)/$(AGENT)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
+#
+# The binaries rebuild unconditionally. Their bytes depend on the .go files,
+# but the embedded version comes from git describe, which no file prerequisite
+# tracks: a binary built before the tag existed is bytes-fresh and
+# version-stale, and v0.4.3 shipped one before this was caught. A cross-build
+# costs seconds; a released binary that misreports its version breaks
+# --check-update on every machine that installs it.
+.PHONY: FORCE
+FORCE:
+
+$(DIST)/$(AGENT)-linux-%: FORCE
 	@mkdir -p $(DIST)
 	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze-agent
 
-$(DIST)/$(BIN)-linux-%: $(shell find . -name '*.go' -not -name '*_test.go')
+$(DIST)/$(BIN)-linux-%: FORCE
 	@mkdir -p $(DIST)
 	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze
 
