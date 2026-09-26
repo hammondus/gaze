@@ -99,6 +99,16 @@ $(DIST)/$(BIN)-linux-%: FORCE
 	@mkdir -p $(DIST)
 	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze
 
+# The test host for `make push`: export GAZE_PUSH_HOST in your shell profile,
+# or pass HOST=user@host per invocation. It is not defaulted in this file so
+# the hostname stays out of a public repository.
+HOST ?= $(GAZE_PUSH_HOST)
+
+.PHONY: push
+push: $(DIST)/$(BIN)-linux-arm64 ## Build for linux/arm64 and copy to a test host as ~/gaze.
+	@test -n "$(HOST)" || { echo "push: pass HOST=user@host or export GAZE_PUSH_HOST"; exit 1; }
+	scp $< $(HOST):gaze
+
 .PHONY: install
 install: ## Install into GOBIN on this machine.
 	$(GOENV) go install -ldflags "$(LDFLAGS)" ./cmd/gaze
