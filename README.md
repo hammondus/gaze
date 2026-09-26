@@ -406,6 +406,18 @@ The shared type is `metrics.Snapshot`: the collector decides what the
 numbers are, the display decides what they look like, and `report` reduces
 a run of snapshots to what goes over the wire.
 
+## Dev
+For quick testing
+
+in .zshrc add
+```
+export GAZE_PUSH_HOST=myhostname
+```
+```bash
+make push
+ssh -t myhostname ./gaze
+
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
