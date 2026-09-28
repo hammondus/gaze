@@ -25,6 +25,7 @@ func main() {
 	interval := flag.Duration("i", time.Second, "refresh `interval`")
 	procPath := flag.String("procfs", "/proc", "`path` to the proc filesystem")
 	sysPath := flag.String("sysfs", "/sys", "`path` to the sys filesystem")
+	runPath := flag.String("runfs", "/run", "`path` to the run filesystem, read for the reboot-required marker")
 	containers := flag.Bool("containers", true, "collect container statistics from the Docker or Podman socket")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	doUpdate := flag.Bool("update", false, "replace this executable with the latest release")
@@ -53,9 +54,13 @@ func main() {
 		fatal("%v", err)
 	}
 
+	// No checkDir for run: unlike proc and sys it carries one optional
+	// marker, and a missing directory should cost that marker, not the
+	// monitor.
 	col := metrics.NewWithSource(metrics.Source{
 		Proc: os.DirFS(*procPath),
 		Sys:  os.DirFS(*sysPath),
+		Run:  os.DirFS(*runPath),
 	}, metrics.Options{
 		DisableContainers: !*containers,
 	})

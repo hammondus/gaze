@@ -364,3 +364,21 @@ func bump(t *testing.T, m fstest.MapFS, name, old, new string) {
 	}
 	m[name] = &fstest.MapFile{Data: []byte(strings.Replace(s, old, new, 1)), Mode: 0o444}
 }
+
+// TestRebootRequired covers the distribution's reboot marker: present in the
+// fixture run tree, and absent when the caller offers no run filesystem at
+// all, which must read as false rather than fail.
+func TestRebootRequired(t *testing.T) {
+	proc := loadMapFS(t, "testdata/proc")
+	sys := loadMapFS(t, "testdata/sys")
+
+	c := NewWithSource(Source{Proc: proc, Sys: sys, Run: loadMapFS(t, "testdata/run")}, Options{})
+	if s := c.Collect(context.Background()); !s.Host.RebootRequired {
+		t.Error("reboot-required marker present but not reported")
+	}
+
+	c = NewWithSource(Source{Proc: proc, Sys: sys}, Options{})
+	if s := c.Collect(context.Background()); s.Host.RebootRequired {
+		t.Error("reboot reported with no run filesystem to read")
+	}
+}

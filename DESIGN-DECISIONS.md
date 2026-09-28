@@ -201,6 +201,32 @@ Filesystem percentages use `used / (used + available)`, which is what `df`
 reports. The blocks reserved for root are neither used nor available; counting
 them would under-report a filesystem that is full for everyone but root.
 
+## Restart required is the distribution's marker
+
+The context line warns "restart required" when `/run/reboot-required`
+exists — the file Debian and Ubuntu package hooks create when an installed
+upgrade, such as a kernel or libc, takes effect only after a boot. The check
+is a stat of one path, unprivileged, and runs every collection, because
+unattended upgrades install kernels under a running monitor.
+
+The alternatives lost on gaze's own constraints. `needrestart` gives the
+richest answer — which services map deleted libraries — but it wants root,
+takes seconds, and is an exec, and collection here is file reads only.
+Reimplementing its process inspection from `/proc/*/maps` is possible
+without an exec, but deleted-mapping heuristics are exactly the noise that
+tool exists to encapsulate. Comparing the running kernel against the newest
+`/lib/modules` entry would cover distributions without the marker, but
+newest installed is not intended-to-boot: pinned kernels and flavour
+variants make it a guess, and a monitor that cries restart wrongly loses
+trust faster than one that stays silent.
+
+So the rule is: report the distribution's own statement, infer nothing.
+On distributions without the marker convention the flag is always false,
+which means "no statement", not "up to date". The field sits on Host in the
+snapshot and does not cross the wire; putting it in the report so the fleet
+pages and alerting can see it is an additive change for a deliberate later
+step.
+
 ## Which devices and filesystems appear
 
 Three filters, all in `internal/metrics`:

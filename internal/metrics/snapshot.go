@@ -85,6 +85,11 @@ type Host struct {
 	Kernel   string
 	Uptime   time.Duration
 	CPUCount int
+	// RebootRequired is the distribution's own statement that an installed
+	// upgrade takes effect only after a boot — /run/reboot-required on
+	// Debian and Ubuntu. False means no such statement, not "up to date":
+	// distributions without the marker convention always read false.
+	RebootRequired bool
 }
 
 // CPU holds the share of an interval spent in each scheduler state, as a

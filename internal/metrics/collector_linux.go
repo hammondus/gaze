@@ -13,5 +13,6 @@ func NewSource() Source {
 	return Source{
 		Proc: os.DirFS("/proc"),
 		Sys:  os.DirFS("/sys"),
+		Run:  os.DirFS("/run"),
 	}
 }

@@ -737,6 +737,9 @@ func (m Model) context() string {
 	if s.CPU.Steal >= 1 {
 		parts = append(parts, styWarn.Render(fmt.Sprintf("%s steal", percent(s.CPU.Steal))))
 	}
+	if s.Host.RebootRequired {
+		parts = append(parts, styWarn.Render("restart required"))
+	}
 	return clipWidth(styLabel.Render(strings.Join(parts, " · ")), m.width)
 }
 

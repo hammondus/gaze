@@ -20,6 +20,7 @@ func NewSource() Source {
 	return Source{
 		Proc: unsupportedFS{},
 		Sys:  unsupportedFS{},
+		Run:  unsupportedFS{},
 	}
 }
 

@@ -19,6 +19,10 @@ import (
 type Source struct {
 	Proc fs.FS
 	Sys  fs.FS
+	// Run is /run, read only for the distribution's reboot-required marker.
+	// A nil Run means the caller has nothing to offer there, and the marker
+	// reads as absent rather than as an error.
+	Run fs.FS
 }
 
 // open returns a reader for a path relative to the given filesystem. Callers

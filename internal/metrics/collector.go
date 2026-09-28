@@ -157,14 +157,35 @@ func (c *Collector) Collect(ctx context.Context) Snapshot {
 		}
 	}
 
-	// Uptime is cheap and changes every tick, unlike the rest of Host.
+	// Uptime is cheap and changes every tick, unlike the rest of Host. The
+	// reboot marker is the same: unattended upgrades install kernels under a
+	// running monitor, so it is checked per collection, not at start-up.
 	if f, err := c.src.Proc.Open("uptime"); err == nil {
 		s.Host.Uptime, _ = parseUptime(f)
 		f.Close()
 	}
+	s.Host.RebootRequired = c.rebootRequired()
 
 	c.prevAt = now
 	return s
+}
+
+// rebootRequired reports whether the distribution has flagged that a boot is
+// needed. Debian and Ubuntu package hooks create /run/reboot-required when an
+// upgrade — a kernel, libc — takes effect only after a restart, and the check
+// is one stat of that path.
+//
+// Nothing is inferred where the marker convention does not exist: no
+// comparing the running kernel against /lib/modules, and never an exec of
+// needrestart. A false "restart required" costs more trust than a missing
+// one, and the marker is the distribution's own statement — see "Restart
+// required is the distribution's marker" in DESIGN-DECISIONS.md.
+func (c *Collector) rebootRequired() bool {
+	if c.src.Run == nil {
+		return false
+	}
+	_, err := fs.Stat(c.src.Run, "reboot-required")
+	return err == nil
 }
 
 // readHost reads the values that do not change while the program runs.

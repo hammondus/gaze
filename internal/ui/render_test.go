@@ -23,6 +23,7 @@ func demoSnapshot() metrics.Snapshot {
 		Host: metrics.Host{
 			Hostname: "aurora", Kernel: "6.8.0-45-generic",
 			Uptime: 148*time.Hour + 12*time.Minute, CPUCount: 8,
+			RebootRequired: true,
 		},
 		CPU:    metrics.CPU{Busy: 42.3, Idle: 57.7, IOWait: 6.1, User: 30, System: 12},
 		Memory: metrics.Memory{Total: 16 << 30, Used: 11 << 30, Percent: 68.7},
@@ -343,6 +344,19 @@ func TestContainerTableTitle(t *testing.T) {
 	// A table with room for everything claims nothing.
 	if out := stripStyle(m.containerTable(80, 10, false)); strings.Contains(out, " of ") {
 		t.Errorf("truncation note on a complete table:\n%s", out)
+	}
+}
+
+// TestContextReportsRestartRequired checks the pending-boot flag joins the
+// context line's conditional warnings, and costs nothing when clear.
+func TestContextReportsRestartRequired(t *testing.T) {
+	m := demoModel(160, 40)
+	if !strings.Contains(stripStyle(m.context()), "restart required") {
+		t.Error("the demo host needs a boot and the context line does not say so")
+	}
+	m.snap.Host.RebootRequired = false
+	if strings.Contains(stripStyle(m.context()), "restart") {
+		t.Error("restart warning shown with nothing pending")
 	}
 }
 
