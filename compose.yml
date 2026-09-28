@@ -15,8 +15,12 @@ services:
   gaze-server:
     build: .
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # Deliberately unreachable as checked in: no ports, no shared network.
+    # How the proxy reaches gaze-server:8080 is deployment-specific and
+    # lives in a git-ignored compose.override.yml beside this file — the
+    # same rule as GAZE_KEY in .env. The README's first-time setup shows
+    # the override that joins the proxy's Docker network; publishing 8080
+    # on the host instead would offer the login page over plain http.
     environment:
       # GAZE_KEY seals the admin's TOTP secret and must come from outside
       # the container — a key stored beside the database it protects

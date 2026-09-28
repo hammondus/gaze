@@ -8,3 +8,9 @@
 # it is correct for this working tree only and wrong inside a build container.
 /go.work
 /go.work.sum
+
+# Per-deployment server configuration, created on the server: the sealing
+# key, and the override that wires the container to that machine's proxy
+# network. Both are correct for one deployment only.
+/.env
+/compose.override.yml

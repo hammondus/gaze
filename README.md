@@ -207,19 +207,65 @@ can also serve the TUI over SSH — see
 [The SSH view](#the-ssh-view).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
-release asset:
+release asset. The image builds from source on the server, so getting the
+software there is a clone of this repository.
 
-```
-echo "GAZE_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
-make deploy        # on the server: git pull, then docker compose up -d --build
-make logs
-```
+### First-time setup
 
-`GAZE_KEY` seals the admin's TOTP secret; keep it out of the repository and
-away from the database. On first start the log prints a setup code; open
-`/setup`, enter it, and create the admin account — a password and a
-mandatory authenticator enrolment. If the admin is ever locked out, reset
-from the shell and set up again:
+1. Clone the repository and mint the sealing key:
+
+   ```
+   git clone https://github.com/hammondus/gaze.git
+   cd gaze
+   echo "GAZE_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
+   ```
+
+   `GAZE_KEY` seals the admin's TOTP secret; `.env` is git-ignored, and the
+   key must stay out of the repository and away from the database.
+
+2. Wire the container to your proxy. `compose.yml` is deliberately
+   unreachable as checked in — no published port, no shared network —
+   because that wiring is deployment-specific. Put it in
+   `compose.override.yml` beside `compose.yml`; the file is git-ignored,
+   and `docker compose` merges it automatically. To join the Docker
+   network your proxy is on:
+
+   ```yaml
+   services:
+     gaze-server:
+       networks:
+         - proxynet          # the proxy's existing network
+   networks:
+     proxynet:
+       external: true
+   ```
+
+3. Build and start the container:
+
+   ```
+   docker compose up -d --build
+   make logs
+   ```
+
+4. Point the TLS-terminating proxy at `gaze-server:8080` over that shared
+   network. The proxy is not optional: agents refuse plain `http` off
+   loopback and the web session cookies are marked `Secure`, so nothing
+   works end to end without the proxied `https` hostname.
+
+5. On first start the log prints a setup code. Open `/setup` on the proxied
+   URL, enter it, and create the admin account — a password and a mandatory
+   authenticator enrolment.
+
+6. Enroll the first host and start its agent — see below. The machine
+   running the server wants an agent too, or it is the one host the fleet
+   page cannot see.
+
+Every later update is `make deploy` on the server: `git pull`, then
+`docker compose up -d --build`. Alert mail can wait until the rules have
+been watched for a while — with the `GAZE_SMTP_*` variables unset, alerts
+compose into the log instead of sending.
+
+If the admin is ever locked out, reset from the shell and set up again:
 
 ```
 docker compose exec gaze-server gaze-server admin reset -db /data/gaze.db
