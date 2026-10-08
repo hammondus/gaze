@@ -187,11 +187,84 @@ next report, so the server's host list shows "declined" rather than an
 agent that never seems to catch up. Command-line collection is never
 remotely settable: `-cmdlines` stays a local choice.
 
-To run it as a service, start from
-[contrib/gaze-agent.service](contrib/gaze-agent.service): it documents the
-unprivileged user, the token file, what joining the `docker` group for
-container statistics really grants, and what enabling remote update does
-to the unit's hardening.
+### Installing the agent
+
+The agent ships as a release binary, so each host downloads it; nothing
+builds on the host. To install it as a systemd service, run the following
+as root on each host, including the machine that runs the server.
+
+1. Enroll the host on the server and copy the token it prints. See
+   [enrolling a host](#enrolling-a-host). The token prints once only.
+
+2. Download the binary and check it against the published checksum:
+
+   ```sh
+   case "$(uname -m)" in
+     aarch64|arm64) arch=arm64 ;;
+     x86_64|amd64)  arch=amd64 ;;
+     *) echo "unsupported architecture: $(uname -m)"; exit 1 ;;
+   esac
+   base=https://github.com/hammondus/gaze/releases/latest/download
+   curl -fsSL "$base/gaze-agent-linux-$arch" -o "gaze-agent-linux-$arch"
+   curl -fsSL "$base/SHA256SUMS" -o SHA256SUMS
+   grep "gaze-agent-linux-$arch" SHA256SUMS | sha256sum -c
+   ```
+
+3. Create the `gaze` user, install the binary, and write the token file:
+
+   ```sh
+   useradd --system --home /nonexistent --shell /usr/sbin/nologin gaze
+   install -m 0755 "gaze-agent-linux-$arch" /usr/local/bin/gaze-agent
+   install -d -m 0750 -o gaze -g gaze /etc/gaze
+   (umask 077; echo "<token>" > /etc/gaze/token) && chown gaze:gaze /etc/gaze/token
+   ```
+
+   The agent refuses a token file that group or other can read.
+
+4. Download the unit file from the same release, check it, and install it
+   with your server's proxied `https` URL in place of the placeholder:
+
+   ```sh
+   curl -fsSL "$base/gaze-agent.service" -o gaze-agent.service
+   grep "gaze-agent.service" SHA256SUMS | sha256sum -c
+   server=https://gaze.example.net
+   sed "s|https://gaze.example.net|$server|" gaze-agent.service > /etc/systemd/system/gaze-agent.service
+   ```
+
+   Use the proxied URL on the server's own machine too. The server
+   container publishes no port, so `http://localhost` does not reach it.
+
+5. Decide whether the agent collects container statistics. The comments in
+   [contrib/gaze-agent.service](contrib/gaze-agent.service) explain both
+   choices:
+
+   - To collect them, uncomment `SupplementaryGroups=docker`. Membership of
+     the `docker` group is root in practice.
+   - To skip them, add `-containers=false` to `ExecStart`. Without either
+     change, the agent cannot open the socket and records an error on
+     every sample.
+
+6. Optional: To let the server manage the agent, add `-allow-remote-config`
+   or `-allow-remote-update`, or both, to `ExecStart`. Remote update also
+   needs the binary in a directory the `gaze` user can write to; the end of
+   the unit file gives the steps.
+
+7. Run the agent in the foreground to confirm it reaches the server:
+
+   ```sh
+   sudo -u gaze /usr/local/bin/gaze-agent -server "$server" -token-file /etc/gaze/token
+   ```
+
+   The first report arrives after about a minute. When the host list shows
+   the host reporting, press Ctrl+C.
+
+8. Start the service:
+
+   ```sh
+   systemctl daemon-reload
+   systemctl enable --now gaze-agent
+   journalctl -u gaze-agent -f
+   ```
 
 ## The server
 
@@ -256,9 +329,10 @@ software there is a clone of this repository.
    URL, enter it, and create the admin account — a password and a mandatory
    authenticator enrolment.
 
-6. Enroll the first host and start its agent — see below. The machine
-   running the server wants an agent too, or it is the one host the fleet
-   page cannot see.
+6. Enroll the first host and start its agent. See
+   [installing the agent](#installing-the-agent). The machine running the
+   server wants an agent too, or it is the one host the fleet page cannot
+   see.
 
 Every later update is `make deploy` on the server: `git pull`, then
 `docker compose up -d --build`. Alert mail can wait until the rules have
@@ -270,6 +344,8 @@ If the admin is ever locked out, reset from the shell and set up again:
 ```
 docker compose exec gaze-server gaze-server admin reset -db /data/gaze.db
 ```
+
+### Enrolling a host
 
 To enroll a host, use the **Enrol a host** page, or from the shell:
 

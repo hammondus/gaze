@@ -780,6 +780,14 @@ Renaming an asset, or dropping `SHA256SUMS`, breaks `--update` for everyone
 already installed, and their only route back is a manual download. Add new
 assets alongside the existing names rather than renaming them.
 
+`gaze-agent.service` is one such addition. The README's install steps fetch
+the unit file from the release, not from `master` on
+raw.githubusercontent.com, so a host installs the unit written for the binary
+it downloads, and `SHA256SUMS` covers the unit as well. A raw URL pinned to a
+tag would also match the binary, but the README would need a new tag on every
+release. The name joins the contract: every copy of the README's install
+steps asks for it.
+
 The wire format is now a second such surface, and a stricter one, because an
 agent that fails to parse a reply keeps running. See "The wire format is not
 the snapshot".
