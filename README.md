@@ -190,8 +190,14 @@ remotely settable: `-cmdlines` stays a local choice.
 ### Installing the agent
 
 The agent ships as a release binary, so each host downloads it; nothing
-builds on the host. To install it as a systemd service, run the following
-as root on each host, including the machine that runs the server.
+builds on the host. To install it as a systemd service, follow these steps
+on each host, including the machine that runs the server. Every step runs
+as root, in one shell, because later steps use the variables earlier ones
+set. Start that shell first:
+
+```sh
+sudo -i
+```
 
 1. Enroll the host on the server and copy the token it prints. See
    [enrolling a host](#enrolling-a-host). The token prints once only.
@@ -216,10 +222,19 @@ as root on each host, including the machine that runs the server.
    useradd --system --home /nonexistent --shell /usr/sbin/nologin gaze
    install -m 0755 "gaze-agent-linux-$arch" /usr/local/bin/gaze-agent
    install -d -m 0750 -o gaze -g gaze /etc/gaze
-   (umask 077; echo "<token>" > /etc/gaze/token) && chown gaze:gaze /etc/gaze/token
    ```
 
-   The agent refuses a token file that group or other can read.
+   Then write the token file. Run this command on its own, not pasted with
+   the lines above: `read` takes whatever arrives next on the terminal, and
+   in a pasted block that is the following line.
+
+   ```sh
+   (umask 077; read -rsp 'Token: ' t && echo && printf '%s\n' "$t" > /etc/gaze/token) && chown gaze:gaze /etc/gaze/token
+   ```
+
+   At the `Token:` prompt, paste the token. `read -s` keeps it off the
+   screen and out of your shell history. The agent refuses a token file
+   that group or other can read.
 
 4. Download the unit file from the same release, check it, and install it
    with your server's proxied `https` URL in place of the placeholder:
