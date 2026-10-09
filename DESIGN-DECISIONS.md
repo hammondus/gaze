@@ -1225,6 +1225,17 @@ is not worth a JSON API surface plus client code to audit, for a page whose
 job is a glance. If that judgement changes, the graph builder already
 produces the series; only the last step moves.
 
+The host list is the one page that reloads itself, through
+`<meta http-equiv="refresh" content="60">`, still with no JavaScript. It
+is where you watch for a host going stale, and it is cheap to render. Sixty
+seconds matches the agents' default report interval; reloading faster
+shows nothing new. The reload is opt-in per page through `page.Refresh`,
+and a test keeps it off the enrolment result, where a reload would leave
+the once-shown token. It cannot keep a session alive: session expiry is
+fixed at sign-in, not extended by activity. The host page keeps the
+manual reload, because its graphs are the expensive render and a reload
+can move you while you read.
+
 The rules the builder enforces, in test rather than by eye:
 
 - **A line is segments, never one polyline.** Adjacent points further apart

@@ -68,7 +68,10 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 		row.CfgStatus, row.CfgClass = configStatus(o.Generation, o.CfgGeneration, o.Declined)
 		rows = append(rows, row)
 	}
-	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Data: rows})
+	// The host list reloads on the agents' default report interval, so a
+	// host going stale shows without a manual refresh. The page is a
+	// glance; graphs and forms elsewhere keep the manual reload.
+	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Refresh: 60, Data: rows})
 }
 
 // ranges are the spans the host page offers. An ordered slice, not a map:

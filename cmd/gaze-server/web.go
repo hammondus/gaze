@@ -269,7 +269,11 @@ type page struct {
 	CSRF   string
 	Error  string
 	Authed bool // whether to draw the signed-in chrome (nav, logout)
-	Data   any
+	// Refresh, when non-zero, reloads the page after that many seconds.
+	// Only the host list sets it: a page with a form or a once-shown
+	// secret would lose what it holds.
+	Refresh int
+	Data    any
 }
 
 // render is the one place a page is written, so the cache policy is set

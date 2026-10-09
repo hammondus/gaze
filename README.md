@@ -290,9 +290,10 @@ over them: a host list that tells a reporting host from a stale one from
 one that has never reported, and per-host graphs — server-rendered SVG, no
 JavaScript — with tables for filesystems, containers, and the busiest
 processes. The host page hides the virtual devices as the dashboard does, and
-says how many; the link that shows them keeps the time range you were on. It
-can also serve the TUI over SSH — see
-[The SSH view](#the-ssh-view).
+says how many; the link that shows them keeps the time range you were on.
+The host list reloads itself every minute; to see new data on a host page,
+reload the page. The server can also serve the TUI over SSH, which updates
+live. See [The SSH view](#the-ssh-view).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
 release asset. The image builds from source on the server, so getting the

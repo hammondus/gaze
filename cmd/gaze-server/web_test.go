@@ -364,6 +364,30 @@ func TestFleetStates(t *testing.T) {
 	}
 }
 
+// TestRefreshOnlyOnHostList pins the reload to the one page that is safe
+// to reload: the enrolment result shows its token once, and a reload there
+// would navigate away from it.
+func TestRefreshOnlyOnHostList(t *testing.T) {
+	w := newTestWeb(t)
+	const meta = `http-equiv="refresh"`
+
+	_, body := w.get("/login")
+	if strings.Contains(body, meta) {
+		t.Error("login page reloads itself")
+	}
+
+	w.setupAndSignIn()
+	if _, body := w.get("/"); !strings.Contains(body, `<meta http-equiv="refresh" content="60">`) {
+		t.Error("host list does not reload itself")
+	}
+	if _, body := w.get("/hosts/enroll"); strings.Contains(body, meta) {
+		t.Error("enrol form reloads itself")
+	}
+	if _, body := w.post("/hosts/enroll", url.Values{"name": {"new-host"}}); strings.Contains(body, meta) {
+		t.Error("token page reloads itself")
+	}
+}
+
 func TestHostState(t *testing.T) {
 	if label, _ := hostState(time.Time{}); label != "never reported" {
 		t.Errorf("zero time = %q", label)
