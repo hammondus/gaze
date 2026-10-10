@@ -5,8 +5,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# VERSION is the release this image is built from, and it is not cosmetic:
+# the server sends update directives only while its own version equals the
+# latest release. .dockerignore keeps .git out of the context, so the build
+# cannot ask git; `make deploy` passes it in through compose.yml. Left at
+# dev, the server works but never updates an agent.
+ARG VERSION=dev
 # CGO off keeps the modernc SQLite driver pure Go and the binary static.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/gaze-server ./cmd/gaze-server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/gaze-server ./cmd/gaze-server
 
 # Pre-create the database directory here, with the runtime uid. The runtime
 # stage has no shell to mkdir or chown with. 0700 because nothing but the

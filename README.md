@@ -448,8 +448,14 @@ whether it complies. The host list shows whether each change was applied,
 is still travelling, or was declined — and a declined directive names the
 flag to change.
 
-Update directives are sent only while the server itself is on the latest
-release, so an agent can never be pushed past its server's schema.
+The server sends update directives only while it runs the latest release,
+so an agent can never be pushed past its server's schema. The server reads
+its version from `git describe` when `make deploy` builds the image, so
+deploy with `make deploy`, from a checkout on the latest tag. A bare
+`docker compose up --build` builds a `dev` server, and a checkout past the
+tag builds a version such as `v0.6.0-1-gabc1234`; neither sends updates.
+The first line of `make logs` names the running version, and while an
+update stands requested, the log says why it is held.
 
 ### Alerting
 

@@ -121,6 +121,13 @@ func (g *updateGate) check() (latest string, sendable bool) {
 			log.Printf("update gate: %v", err)
 		} else {
 			g.latest = v
+			if v != g.version {
+				// The one place an operator can see why a pressed update
+				// button does nothing. Logged at most hourly, and only
+				// while an update stands requested.
+				log.Printf("update gate: this server is %s and the latest release is %s; update requests stay pending until the server runs %s",
+					g.version, v, v)
+			}
 		}
 	}
 	// A "dev" build never equals a release tag, so a development server

@@ -14,7 +14,13 @@
 services:
   gaze-server:
     container_name: gaze_server
-    build: .
+    build:
+      context: .
+      # The server's version, from `git describe` in `make deploy`. Remote
+      # agent updates need it: the server sends them only while it runs
+      # the latest release. A bare `docker compose up --build` builds dev.
+      args:
+        VERSION: ${GAZE_VERSION:-dev}
     restart: unless-stopped
     # Deliberately unreachable as checked in: no ports, no shared network.
     # How the proxy reaches gaze-server:8080 is deployment-specific and

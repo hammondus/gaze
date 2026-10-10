@@ -126,12 +126,14 @@ install: ## Install into GOBIN on this machine.
 # container behind nginx proxy manager, and is never a release asset.
 .PHONY: docker-build
 docker-build: ## Confirm the server image builds.
-	docker compose build
+	GAZE_VERSION=$(VERSION) docker compose build
 
 .PHONY: deploy
+# The version is read in the recipe, not from $(VERSION): make expands that
+# before git pull runs, which would stamp the image with the old release.
 deploy: ## On the server: pull and restart the running stack.
 	git pull
-	docker compose up -d --build
+	GAZE_VERSION=$$(git describe --tags --always --dirty) docker compose up -d --build
 
 .PHONY: logs
 logs: ## Follow the server's logs.

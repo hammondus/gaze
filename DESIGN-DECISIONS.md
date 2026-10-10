@@ -1141,6 +1141,15 @@ Stage 8 settled the mechanics, recorded rather than rediscovered:
   stands requested, at most hourly, errors included — a fleet reporting
   every minute must not become a minutely poll of GitHub. A "dev" build
   never equals a release tag, so a development server never sends updates.
+- **The image carries its version as a build argument.** `.dockerignore`
+  keeps `.git` out of the build context, so the Dockerfile cannot run
+  `git describe`. `make deploy` runs it on the server after `git pull`
+  and passes it through `compose.yml` as the `VERSION` build argument.
+  Until 2026-10-10 the image never set a version, so every deployed server
+  was `dev` and the update button did nothing. Sending `.git` into the
+  context instead would ship the whole history into the build stage to
+  read one string. The gate logs, at most hourly, when it holds a
+  requested update, because a held request is otherwise silent.
 - **The stagger slot is derived, not drawn.** Each host's position in the
   fifteen-minute rollout window is a hash of its id — the same argument as
   the reporting offset: stable across restarts, so a rebooted server does
