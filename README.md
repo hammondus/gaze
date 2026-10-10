@@ -396,9 +396,12 @@ software there is a clone of this repository.
 3. Build and start the container:
 
    ```
-   docker compose up -d --build
+   make up
    make logs
    ```
+
+   `make up` builds the image with the version from `git describe`. The
+   first log line names it; without it, the server cannot update agents.
 
 4. Point the TLS-terminating proxy at `gaze-server:8080` over that shared
    network. The proxy is not optional: agents refuse plain `http` off
@@ -415,7 +418,7 @@ software there is a clone of this repository.
    see.
 
 Every later update is `make deploy` on the server: `git pull`, then
-`docker compose up -d --build`. Alert mail can wait until the rules have
+`make up`. Alert mail can wait until the rules have
 been watched for a while — with the `GAZE_SMTP_*` variables unset, alerts
 compose into the log instead of sending.
 

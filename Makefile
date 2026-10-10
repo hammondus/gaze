@@ -129,11 +129,17 @@ docker-build: ## Confirm the server image builds.
 	GAZE_VERSION=$(VERSION) docker compose build
 
 .PHONY: deploy
-# The version is read in the recipe, not from $(VERSION): make expands that
-# before git pull runs, which would stamp the image with the old release.
-deploy: ## On the server: pull and restart the running stack.
+# deploy hands everything after the pull to a second make. make reads this
+# file before any recipe runs, so without the second make a pull that
+# changes a recipe takes effect only on the deploy after it — and the
+# second make also reads VERSION after the pull, not before it.
+deploy: ## On the server: pull, then build and restart the running stack.
 	git pull
-	GAZE_VERSION=$$(git describe --tags --always --dirty) docker compose up -d --build
+	$(MAKE) up
+
+.PHONY: up
+up: ## Build and restart the server from this checkout, without pulling.
+	GAZE_VERSION=$(VERSION) docker compose up -d --build
 
 .PHONY: logs
 logs: ## Follow the server's logs.

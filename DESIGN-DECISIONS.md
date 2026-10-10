@@ -1143,8 +1143,12 @@ Stage 8 settled the mechanics, recorded rather than rediscovered:
   never equals a release tag, so a development server never sends updates.
 - **The image carries its version as a build argument.** `.dockerignore`
   keeps `.git` out of the build context, so the Dockerfile cannot run
-  `git describe`. `make deploy` runs it on the server after `git pull`
-  and passes it through `compose.yml` as the `VERSION` build argument.
+  `git describe`. `make up` runs it on the server and passes it through
+  `compose.yml` as the `VERSION` build argument. `make deploy` is
+  `git pull` followed by a second `make up`, because make reads the
+  Makefile before any recipe runs: a single recipe would run the
+  pre-pull copy of itself, which is how the first deploy of this fix
+  still built `dev`.
   Until 2026-10-10 the image never set a version, so every deployed server
   was `dev` and the update button did nothing. Sending `.git` into the
   context instead would ship the whole history into the build stage to
