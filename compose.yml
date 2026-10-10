@@ -13,6 +13,7 @@
 # then restart the server and follow the setup code in `docker compose logs`.
 services:
   gaze-server:
+    container_name: gaze_server
     build: .
     restart: unless-stopped
     # Deliberately unreachable as checked in: no ports, no shared network.
