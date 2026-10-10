@@ -460,6 +460,21 @@ tag builds a version such as `v0.6.0-1-gabc1234`; neither sends updates.
 The first line of `make logs` names the running version, and while an
 update stands requested, the log says why it is held.
 
+The host list shows each requested update beside the agent's version.
+Hover over the label for the detail:
+
+| Label | Meaning |
+|---|---|
+| **queued** | Requested; the server sends it with the host's next report after the host's turn in the stagger. |
+| **held** | The server is not on the latest release, so it sends nothing. A line above the list says why. |
+| **sent 2m ago** | A reply carried the update; the server is waiting for the agent's next report. |
+| **not updated** | A report after the send still carries the old version. The hover text gives the agent's reason; agents older than this feature send none, so check `journalctl -u gaze-agent` on the host. |
+| **refused** | The agent runs without `-allow-remote-update`. |
+
+When the update takes, the label goes and only the new version shows.
+**Update all agents** skips hosts already on the latest release and hosts
+that have never reported, and says how many it asked.
+
 ### Alerting
 
 The server mails on state transitions, never on conditions: CPU, memory,

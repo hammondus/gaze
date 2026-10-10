@@ -63,6 +63,12 @@ func levelClass(l threshold.Level) string {
 type fleetView struct {
 	Now  time.Time
 	Rows []fleetRow
+
+	// Notice answers the update-all button: how many agents it asked.
+	// Held is set when any request is held, and says why once for the
+	// whole list rather than in every row's hover text.
+	Notice string
+	Held   string
 }
 
 // fleetRow is one host on the list.
@@ -83,6 +89,9 @@ type fleetRow struct {
 	// UpdatesOld marks a count taken more than updatesOldAfter ago.
 	UpdatesOld bool
 
+	// Update is where a requested self-update stands.
+	Update updateView
+
 	// The remote-configuration standing. A declined directive must be as
 	// visible here as an applied one.
 	CfgStatus string
@@ -95,6 +104,19 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// The gate is consulted only while some update stands requested: it
+	// is the same hourly-cached lookup the ingest path makes, and a host
+	// list with nothing pending has no reason to ask GitHub anything.
+	var latest string
+	var sendable bool
+	for _, o := range fleet {
+		if !o.UpdateAsked.IsZero() {
+			latest, sendable = s.gate.check()
+			break
+		}
+	}
+
+	view := fleetView{Now: time.Now()}
 	rows := make([]fleetRow, 0, len(fleet))
 	for _, o := range fleet {
 		row := fleetRow{Overview: o}
@@ -117,13 +139,49 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 			row.UpdatesOld = time.Since(o.Updates.Counted) > updatesOldAfter
 		}
 		row.CfgStatus, row.CfgClass = configStatus(o.Generation, o.CfgGeneration, o.Declined)
+		row.Update = updateStanding(updateFacts{
+			Asked: o.UpdateAsked, Sent: o.UpdateSent, LastSeen: o.LastSeen,
+			AgentVersion: o.AgentVersion, Declined: o.Declined, UpdateError: o.UpdateError,
+			Slot: updateSlot(o.ID),
+		}, latest, s.gate.serverVersion(), sendable)
+		if row.Update.Label == "held" {
+			view.Held = strings.TrimPrefix(row.Update.Detail, "Held: ")
+		}
 		rows = append(rows, row)
+	}
+	view.Rows = rows
+	if asked := r.URL.Query().Get("asked"); asked != "" {
+		view.Notice = askedNotice(asked, latest)
 	}
 	// The host list reloads on the agents' default report interval, so a
 	// host going stale shows without a manual refresh. The page is a
 	// glance; graphs and forms elsewhere keep the manual reload.
-	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Refresh: 60,
-		Data: fleetView{Now: time.Now(), Rows: rows}})
+	// The reload goes to the bare list, so the notice from the update-all
+	// button shows once rather than on every reload after it.
+	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Refresh: 60, RefreshTo: "/", Data: view})
+}
+
+// askedNotice is the line the update-all button leaves on the host list.
+func askedNotice(asked, latest string) string {
+	n, err := strconv.Atoi(asked)
+	switch {
+	case err != nil || n < 0:
+		return ""
+	case n == 0 && latest != "":
+		return "Every agent that has reported is already on " + latest + "."
+	case n == 0:
+		return "No agent has reported yet, so there is nothing to update."
+	}
+	agents := "agents"
+	if n == 1 {
+		agents = "agent"
+	}
+	to := ""
+	if latest != "" {
+		to = " to " + latest
+	}
+	return fmt.Sprintf("Asked %d %s to update%s. Each is sent the update at its own time within %d minutes, so the fleet does not download at once.",
+		n, agents, to, int(staggerWindow.Minutes()))
 }
 
 // ranges are the spans the host page offers. An ordered slice, not a map:
@@ -174,6 +232,7 @@ type hostView struct {
 	Cfg       store.HostConfig
 	CfgStatus string
 	CfgClass  string
+	Update    updateView
 
 	Graphs []graph // cpu, load, memory, swap
 	Nets   []graph // one per interface
@@ -224,6 +283,14 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.CfgStatus, v.CfgClass = configStatus(v.Cfg.Echoed, v.Cfg.Generation, v.Cfg.Declined)
+	if !v.Cfg.UpdateAsked.IsZero() {
+		latest, sendable := s.gate.check()
+		v.Update = updateStanding(updateFacts{
+			Asked: v.Cfg.UpdateAsked, Sent: v.Cfg.UpdateSent, LastSeen: v.LastSeen,
+			AgentVersion: v.Cfg.AgentVersion, Declined: v.Cfg.Declined, UpdateError: v.Cfg.UpdateError,
+			Slot: updateSlot(id),
+		}, latest, s.gate.serverVersion(), sendable)
+	}
 
 	v.ShowVirtual = r.URL.Query().Get("virtual") == "1"
 	if key := r.URL.Query().Get("range"); key != "" {

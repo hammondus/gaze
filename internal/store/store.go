@@ -321,4 +321,11 @@ ALTER TABLE reports ADD COLUMN reboot_required INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE reports ADD COLUMN updates_upgradable INTEGER;
 ALTER TABLE reports ADD COLUMN updates_security INTEGER;
 ALTER TABLE reports ADD COLUMN updates_counted INTEGER;
+`, `
+-- Remote update progress. update_sent_at is when the server first put the
+-- update trigger on a reply for the standing request (server clock); NULL
+-- until then, and reset by a new request. update_error is the agent's own
+-- text for why its last attempt failed, from its latest report.
+ALTER TABLE hosts ADD COLUMN update_sent_at INTEGER;
+ALTER TABLE hosts ADD COLUMN update_error TEXT NOT NULL DEFAULT '';
 `}

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -53,14 +54,20 @@ func totp(t *testing.T, secret string, ahead uint64) string {
 type testWeb struct {
 	t     *testing.T
 	store *store.Store
+	path  string // the database file, for tests that steer stored times
 	web   *webServer
 	srv   *httptest.Server
 	http  *http.Client
 }
 
+// testLatest is the latest release as the test server's gate sees it, and
+// the test server's own version.
+const testLatest = "v1.1.0"
+
 func newTestWeb(t *testing.T) *testWeb {
 	t.Helper()
-	s, err := store.Open(filepath.Join(t.TempDir(), "gaze.db"))
+	path := filepath.Join(t.TempDir(), "gaze.db")
+	s, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +80,9 @@ func newTestWeb(t *testing.T) *testWeb {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A server on the latest release, which never reaches GitHub.
+	web.gate = newUpdateGate(testLatest)
+	web.gate.lookup = func() (string, error) { return testLatest, nil }
 	srv := httptest.NewServer(web.handler())
 	t.Cleanup(srv.Close)
 
@@ -80,6 +90,7 @@ func newTestWeb(t *testing.T) *testWeb {
 	return &testWeb{
 		t:     t,
 		store: s,
+		path:  path,
 		web:   web,
 		srv:   srv,
 		http: &http.Client{
@@ -463,7 +474,7 @@ func TestRefreshOnlyOnHostList(t *testing.T) {
 	}
 
 	w.setupAndSignIn()
-	if _, body := w.get("/"); !strings.Contains(body, `<meta http-equiv="refresh" content="60">`) {
+	if _, body := w.get("/"); !strings.Contains(body, `<meta http-equiv="refresh" content="60; url=/">`) {
 		t.Error("host list does not reload itself")
 	}
 	if _, body := w.get("/hosts/enroll"); strings.Contains(body, meta) {
@@ -647,11 +658,11 @@ func TestAgentManagement(t *testing.T) {
 	if err != nil || cfg.UpdateAsked.IsZero() {
 		t.Fatalf("update request not recorded: %+v, %v", cfg, err)
 	}
-	if _, body = w.get("/hosts/1"); !strings.Contains(body, "update requested") {
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, "update queued") {
 		t.Fatal("host page does not show the pending update request")
 	}
 	resp, _ = w.post("/hosts/update-all", url.Values{})
-	wantRedirect(t, resp, "/")
+	wantRedirect(t, resp, "/?asked=1")
 }
 
 // TestHostPageHidesVirtualDevices covers the web half of the device toggle. A
@@ -728,5 +739,107 @@ func TestHostPageHidesVirtualDevices(t *testing.T) {
 	}
 	if _, body := w.get("/hosts/2"); strings.Contains(body, "virtual device") {
 		t.Error("a host with no virtual devices still offers the toggle")
+	}
+}
+
+// TestUpdateProgressOnHostList follows one update through the host list:
+// the button's notice, queued, sent, not updated with the agent's reason,
+// and done — and the held banner when the server itself is behind.
+func TestUpdateProgressOnHostList(t *testing.T) {
+	w := newTestWeb(t)
+	ctx := t.Context()
+	token, err := w.store.Enroll(ctx, "web-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := w.store.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(version, updateErr string) {
+		t.Helper()
+		r := report.Report{
+			Schema: report.Schema, Version: version, UpdateError: updateErr,
+			Host:  report.Host{Hostname: "web-01"},
+			Start: time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+		}
+		if _, err := w.store.InsertReports(ctx, id, []report.Report{r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chip := func(body string) string {
+		t.Helper()
+		i := strings.Index(body, ">web-01</a>")
+		if i < 0 {
+			t.Fatalf("no row for web-01:\n%s", body)
+		}
+		row := body[i:]
+		row = row[:strings.Index(row, "</tr>")]
+		return row
+	}
+	post("v1.0.0", "")
+	w.setupAndSignIn()
+
+	// The button answers at once: a notice, and the row is queued.
+	resp, _ := w.post("/hosts/update-all", url.Values{})
+	wantRedirect(t, resp, "/?asked=1")
+	_, body := w.get("/?asked=1")
+	if !strings.Contains(body, "Asked 1 agent to update to "+testLatest) {
+		t.Error("the update-all button leaves no notice")
+	}
+	if !strings.Contains(chip(body), ">queued<") {
+		t.Errorf("row not queued:\n%s", chip(body))
+	}
+	if _, body = w.get("/"); strings.Contains(body, "Asked 1 agent") {
+		t.Error("the notice outlives the reload")
+	}
+
+	// The server puts the trigger on a reply.
+	if err := w.store.MarkUpdateSent(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, body = w.get("/"); !strings.Contains(chip(body), ">sent just now<") {
+		t.Errorf("row not sent:\n%s", chip(body))
+	}
+
+	// Two minutes on, the agent reports again, still old, with its reason.
+	db, err := sql.Open("sqlite", "file:"+w.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE hosts SET update_sent_at = update_sent_at - 120 WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	post("v1.0.0", "cannot write to /usr/local/bin: read-only file system")
+	_, body = w.get("/")
+	if row := chip(body); !strings.Contains(row, ">not updated<") || !strings.Contains(row, "read-only file system") {
+		t.Errorf("failure not shown with its reason:\n%s", row)
+	}
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, "read-only file system") {
+		t.Error("host page does not say why the update failed")
+	}
+
+	// It takes: only the new version shows.
+	post(testLatest, "")
+	_, body = w.get("/")
+	if row := chip(body); strings.Contains(row, "chip pending") || strings.Contains(row, "chip bad") ||
+		!strings.Contains(row, testLatest) {
+		t.Errorf("done update still shows progress:\n%s", row)
+	}
+
+	// A server that is itself behind holds every request, and says so once.
+	w.web.gate = newUpdateGate("dev")
+	w.web.gate.lookup = func() (string, error) { return testLatest, nil }
+	post("v1.0.0", "")
+	if err := w.store.RequestUpdate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	_, body = w.get("/")
+	if !strings.Contains(body, "Agent updates are held: this server runs dev and the latest release is "+testLatest) {
+		t.Errorf("no held banner:\n%s", body)
+	}
+	if !strings.Contains(chip(body), ">held<") {
+		t.Errorf("row not held:\n%s", chip(body))
 	}
 }

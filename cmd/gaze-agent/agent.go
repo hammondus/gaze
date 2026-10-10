@@ -69,6 +69,11 @@ type agent struct {
 	// someone else's resources, not a place for a minutely retry loop.
 	updateStarted time.Time
 
+	// updateErr is why the last update attempt failed, first line only; it
+	// rides every report so the server can show it. A new attempt clears
+	// it, and a successful one replaces this process.
+	updateErr string
+
 	// wake nudges the flusher when a report lands in the ring. Buffer of
 	// one: a nudge while it is already draining changes nothing.
 	wake chan struct{}
@@ -169,6 +174,7 @@ func (a *agent) emit() {
 	a.window = nil
 	gen := a.cfg.generation
 	declined := a.declined
+	updateErr := a.updateErr
 	a.mu.Unlock()
 	if len(window) == 0 {
 		return
@@ -178,6 +184,7 @@ func (a *agent) emit() {
 	r.Generation = gen
 	r.Version = a.version
 	r.Declined = declined
+	r.UpdateError = updateErr
 
 	a.mu.Lock()
 	a.ring.push(r)
@@ -297,6 +304,7 @@ func (a *agent) handleUpdate() (declined string) {
 	recent := time.Since(a.updateStarted) < time.Hour
 	if !recent {
 		a.updateStarted = time.Now()
+		a.updateErr = ""
 	}
 	a.mu.Unlock()
 	if recent {
@@ -307,9 +315,27 @@ func (a *agent) handleUpdate() (declined string) {
 		log.Printf("server asked for a self-update; fetching the latest release")
 		if err := a.selfUpdate(); err != nil {
 			log.Printf("self-update: %v (next attempt in an hour if still asked)", err)
+			a.mu.Lock()
+			a.updateErr = updateErrText(err)
+			a.mu.Unlock()
 		}
 	}()
 	return ""
+}
+
+// maxUpdateErr caps the failure text a report carries. An updater error is
+// one sentence; the cap is for the one that wraps something unexpected.
+const maxUpdateErr = 300
+
+// updateErrText is the report's copy of an update failure: the first line
+// only, because the updater appends a "try: sudo …" hint meant for a person
+// at a terminal, not for a server's web page.
+func updateErrText(err error) string {
+	s, _, _ := strings.Cut(err.Error(), "\n")
+	if len(s) > maxUpdateErr {
+		s = strings.ToValidUTF8(s[:maxUpdateErr], "") // the cut can split a rune
+	}
+	return s
 }
 
 // take returns up to n queued reports without removing them; drop removes

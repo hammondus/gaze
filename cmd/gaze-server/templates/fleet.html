@@ -1,6 +1,8 @@
 {{define "content"}}
 <h1>Hosts</h1>
 <p class="meta">as of {{.Data.Now.Format "2006-01-02 15:04:05 MST"}} · reloads every minute</p>
+{{with .Data.Notice}}<p class="notice">{{.}}</p>{{end}}
+{{with .Data.Held}}<p class="notice warn">Agent updates are held: {{.}}</p>{{end}}
 {{if not .Data.Rows}}
 <p>No hosts are enrolled yet. <a href="/hosts/enroll">Enrol the first one.</a></p>
 {{else}}
@@ -28,7 +30,7 @@
       {{else}}
       <td>—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>—</td><td class="num">—</td>
       {{end}}
-      <td class="dim">{{if .AgentVersion}}{{.AgentVersion}}{{else}}—{{end}}</td>
+      <td><span class="dim">{{if .AgentVersion}}{{.AgentVersion}}{{else}}—{{end}}</span>{{with .Update}}{{if .Label}} <span class="chip {{.Class}}" title="{{.Detail}}">{{.Label}}</span>{{end}}{{end}}</td>
       <td>{{if .CfgStatus}}<span class="chip {{.CfgClass}}">{{.CfgStatus}}</span>{{else}}<span class="dim">—</span>{{end}}</td>
     </tr>
   {{end}}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -292,5 +293,20 @@ func TestGolden(t *testing.T) {
 	}
 	if string(b) != string(want) {
 		t.Errorf("the wire format changed; diff against %s:\n got: %s", path, b)
+	}
+}
+
+// TestAgentSetFieldNames pins the wire names of fields the agent sets after
+// the reduction, which the golden fixture never sees because From leaves
+// them empty.
+func TestAgentSetFieldNames(t *testing.T) {
+	b, err := json.Marshal(Report{Declined: "d", UpdateError: "e", Version: "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"declined":"d"`, `"update_error":"e"`, `"version":"v"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%s missing from %s", want, b)
+		}
 	}
 }

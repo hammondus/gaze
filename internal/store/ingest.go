@@ -72,11 +72,11 @@ func (s *Store) InsertReports(ctx context.Context, hostID int64, batch []report.
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE hosts SET kernel = ?, cpus = ?, agent_version = ?,
 			                 generation = ?, schema = ?, last_seen_at = ?,
-			                 declined = ?
+			                 declined = ?, update_error = ?
 			WHERE id = ?`,
 			last.Host.Kernel, last.Host.CPUCount, last.Version,
 			last.Generation, last.Schema, now.Unix(),
-			last.Declined, hostID); err != nil {
+			last.Declined, last.UpdateError, hostID); err != nil {
 			return 0, err
 		}
 	}

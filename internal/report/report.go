@@ -43,6 +43,13 @@ type Report struct {
 	// walk over and change a flag. Empty means nothing stands refused.
 	Declined string `json:"declined,omitempty"`
 
+	// UpdateError is why the agent's last remote self-update failed, in the
+	// updater's own words — "cannot write to /usr/local/bin: read-only file
+	// system". Without it the server can see that an update did not take,
+	// but not why, and the why is on a host someone has to log in to.
+	// Empty means no attempt has failed since the last one began.
+	UpdateError string `json:"update_error,omitempty"`
+
 	// Version is the agent's own build version.
 	Version string `json:"version,omitempty"`
 

@@ -75,6 +75,7 @@ a { color: var(--accent-b); }
 .dim { color: var(--dim); }
 .warn { color: var(--warn); }
 .bad { color: var(--bad); }
+.notice { margin: 0.4rem 0 0.8rem; }
 
 /* Forms */
 .stack { display: grid; gap: 0.8rem; max-width: 22rem; }

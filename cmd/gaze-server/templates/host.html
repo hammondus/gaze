@@ -51,8 +51,10 @@
 <p class="meta">
   {{if .AgentVersion}}version {{.AgentVersion}}{{else}}version unknown{{end}}
   {{if .CfgStatus}} · <span class="chip {{.CfgClass}}">{{.CfgStatus}}</span>{{end}}
-  {{if not .Cfg.UpdateAsked.IsZero}} · update requested {{ago .Cfg.UpdateAsked}}{{end}}
+  {{with .Update}}{{if .Label}} · <span class="chip {{.Class}}">update {{.Label}}</span>{{end}}{{end}}
+  {{if not .Cfg.UpdateAsked.IsZero}} · requested {{ago .Cfg.UpdateAsked}}{{end}}
 </p>
+{{with .Update}}{{if .Detail}}<p class="{{if eq .Class "bad"}}declined{{else}}dim{{end}}">{{.Detail}}</p>{{end}}{{end}}
 {{if .Cfg.Declined}}
 <p class="declined">The agent declined the last directive: {{.Cfg.Declined}}.
 Its start flags decide what a server may change; someone has to edit the

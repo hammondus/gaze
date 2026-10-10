@@ -71,6 +71,11 @@ type webServer struct {
 	// exists for plain-HTTP local development, where a Secure cookie is
 	// simply dropped.
 	secure bool
+
+	// gate is the update directives' own release check, shared so the
+	// pages say exactly what the ingest path will do. main sets it; nil
+	// reads as "latest release unknown".
+	gate *updateGate
 }
 
 func newWebServer(s *store.Store, key []byte, secure bool) (*webServer, error) {
@@ -273,7 +278,9 @@ type page struct {
 	// Only the host list sets it: a page with a form or a once-shown
 	// secret would lose what it holds.
 	Refresh int
-	Data    any
+	// RefreshTo is where the reload goes; empty reloads the same URL.
+	RefreshTo string
+	Data      any
 }
 
 // render is the one place a page is written, so the cache policy is set

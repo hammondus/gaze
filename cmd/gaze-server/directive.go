@@ -65,6 +65,11 @@ func (d *directives) For(ctx context.Context, hostID int64) (*report.Directive, 
 		case sendable && time.Since(cfg.UpdateAsked) >= updateSlot(hostID):
 			dir.Update = true
 			send = true
+			// Recorded before the reply is written: a reply lost on the
+			// way still counts as sent, and the next report re-sends it.
+			if err := d.store.MarkUpdateSent(ctx, hostID); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -109,9 +114,21 @@ func newUpdateGate(version string) *updateGate {
 	return &updateGate{version: version, lookup: u.Latest}
 }
 
+// serverVersion is this server's own build version, for saying why an
+// update is held.
+func (g *updateGate) serverVersion() string {
+	if g == nil {
+		return ""
+	}
+	return g.version
+}
+
 // check returns the latest published version ("" while unknown) and
-// whether updates may be sent.
+// whether updates may be sent. A nil gate knows nothing and sends nothing.
 func (g *updateGate) check() (latest string, sendable bool) {
+	if g == nil {
+		return "", false
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if time.Since(g.checked) >= time.Hour {

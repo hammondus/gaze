@@ -1154,6 +1154,25 @@ Stage 8 settled the mechanics, recorded rather than rediscovered:
   context instead would ship the whole history into the build stage to
   read one string. The gate logs, at most hourly, when it holds a
   requested update, because a held request is otherwise silent.
+- **Update progress is shown in stages, and failure is read from the next
+  report.** The host list labels a request queued, held, sent, not
+  updated, or refused. "Not updated" needs no timer: the agent installs
+  and re-execs within seconds of the trigger, so a report arriving more
+  than 30 seconds after the send that still carries the old version is
+  proof the update did not take. The server records only the first send
+  (`update_sent_at`), because "sent 4m ago" is the question the page
+  answers, and a new request resets it.
+- **The agent reports why an update failed.** `update_error` carries the
+  first line of the updater's error on every report until the next attempt
+  starts. Without it, the server can see that an update failed but not why,
+  and the reason — usually a binary the hardened unit cannot write — sits
+  in a journal on a host someone has to log in to. The first line only:
+  the updater appends a `try: sudo …` hint written for a terminal.
+- **The pages ask the same gate the ingest path does.** The host list
+  calls the update gate only while some request stands, and the gate's
+  hourly cache means the pages add no requests to GitHub. A page that
+  computed "held" its own way could disagree with what the ingest path
+  actually does, which is the failure the label exists to expose.
 - **The stagger slot is derived, not drawn.** Each host's position in the
   fifteen-minute rollout window is a hash of its id — the same argument as
   the reporting offset: stable across restarts, so a rebooted server does

@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hammondus/gaze/internal/metrics"
 	"github.com/hammondus/gaze/internal/report"
@@ -288,5 +290,62 @@ func TestUpdateRunsOncePerHour(t *testing.T) {
 	mu.Unlock()
 	if got != 2 {
 		t.Fatalf("self-update did not run after the gate expired: %d", got)
+	}
+}
+
+// TestUpdateFailureEcho: a failed self-update rides the next report, first
+// line only, and the next attempt clears it — so the server can show why an
+// update did not take without anyone logging in to the host.
+func TestUpdateFailureEcho(t *testing.T) {
+	a := testAgent(t, "http://127.0.0.1:1", false)
+	a.allowRemoteUpdate = true
+	fail := true
+	a.selfUpdate = func() error {
+		if fail {
+			return errors.New("cannot write to /usr/local/bin: read-only file system\ntry: sudo /usr/local/bin/gaze-agent --update")
+		}
+		return nil
+	}
+	updateErr := func() string {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			a.mu.Lock()
+			s, running := a.updateErr, a.updateStarted
+			a.mu.Unlock()
+			if s != "" || time.Now().After(deadline) || (!fail && !running.IsZero()) {
+				return s
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	a.apply(&report.Directive{Update: true})
+	if got, want := updateErr(), "cannot write to /usr/local/bin: read-only file system"; got != want {
+		t.Fatalf("updateErr = %q, want %q", got, want)
+	}
+	a.window = []metrics.Snapshot{{Taken: time.Now()}}
+	a.emit()
+	if got := a.take(1)[0]; got.UpdateError == "" || got.Declined != "" {
+		t.Fatalf("report: update_error=%q declined=%q; a failure is not a refusal", got.UpdateError, got.Declined)
+	}
+	a.drop(1)
+
+	// The next attempt, past the hourly gate, starts clean.
+	fail = false
+	a.mu.Lock()
+	a.updateStarted = time.Now().Add(-2 * time.Hour)
+	a.mu.Unlock()
+	a.apply(&report.Directive{Update: true})
+	if got := updateErr(); got != "" {
+		t.Fatalf("updateErr not cleared by a new attempt: %q", got)
+	}
+}
+
+func TestUpdateErrText(t *testing.T) {
+	long := strings.Repeat("é", maxUpdateErr) // two bytes a rune: the cut lands mid-rune
+	got := updateErrText(errors.New(long))
+	if len(got) > maxUpdateErr || !utf8.ValidString(got) {
+		t.Fatalf("len %d, valid %v", len(got), utf8.ValidString(got))
 	}
 }

@@ -212,3 +212,100 @@ func TestUpdateSlotStable(t *testing.T) {
 		t.Fatal("slot outside the window")
 	}
 }
+
+// TestUpdateProgressRecorded: the first send is recorded and kept across
+// re-sends, the agent's failure text is stored from its report, and a new
+// request starts the progress over.
+func TestUpdateProgressRecorded(t *testing.T) {
+	s, d, id, path := newDirFixture(t, "v1.0.0")
+	ctx := context.Background()
+	echo(t, s, id, "v0.9.0", 0, "")
+	if err := s.RequestUpdate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := s.HostConfig(ctx, id)
+	if !cfg.UpdateSent.IsZero() {
+		t.Fatal("request marked sent before any reply carried it")
+	}
+
+	backdate(t, path, id)
+	if dir, _ := d.For(ctx, id); dir == nil || !dir.Update {
+		t.Fatal("due update not sent")
+	}
+	cfg, _ = s.HostConfig(ctx, id)
+	first := cfg.UpdateSent
+	if first.IsZero() {
+		t.Fatal("send not recorded")
+	}
+
+	// The agent reports back, still old, with its reason; the server
+	// re-sends, and the first send time stands.
+	r := report.Report{
+		Schema: report.Schema, Version: "v0.9.0", UpdateError: "cannot write to /usr/local/bin: read-only file system",
+		Host:  report.Host{Hostname: "web-01"},
+		Start: time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+	}
+	if _, err := s.InsertReports(ctx, id, []report.Report{r}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE hosts SET update_sent_at = update_sent_at - 120 WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	d.For(ctx, id)
+	cfg, _ = s.HostConfig(ctx, id)
+	if !cfg.UpdateSent.Equal(first.Add(-120 * time.Second)) {
+		t.Fatalf("a re-send moved the first send time: %v, want %v", cfg.UpdateSent, first.Add(-120*time.Second))
+	}
+	if cfg.UpdateError != r.UpdateError {
+		t.Fatalf("UpdateError = %q, want the agent's text", cfg.UpdateError)
+	}
+
+	// Asking again starts the progress over.
+	if err := s.RequestUpdate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ = s.HostConfig(ctx, id); !cfg.UpdateSent.IsZero() {
+		t.Fatal("a new request kept the old send time")
+	}
+}
+
+// TestRequestUpdateAllSkipsCurrent: the fleet button asks only the agents
+// that need it — not one already on the latest release, and not a host
+// that has never reported, which has no agent to tell.
+func TestRequestUpdateAllSkipsCurrent(t *testing.T) {
+	s, _, behind, _ := newDirFixture(t, "v1.0.0")
+	ctx := context.Background()
+	echo(t, s, behind, "v0.9.0", 0, "")
+
+	token, err := s.Enroll(ctx, "current-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	echo(t, s, current, "v1.0.0", 0, "")
+	if _, err := s.Enroll(ctx, "silent-01"); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.RequestUpdateAll(ctx, "v1.0.0")
+	if err != nil || n != 1 {
+		t.Fatalf("asked %d, %v; want 1", n, err)
+	}
+	if cfg, _ := s.HostConfig(ctx, current); !cfg.UpdateAsked.IsZero() {
+		t.Error("a current agent was asked to update")
+	}
+
+	// Latest unknown: nobody is known to be current, so every reporting
+	// host is asked.
+	if n, err := s.RequestUpdateAll(ctx, ""); err != nil || n != 2 {
+		t.Fatalf("latest unknown: asked %d, %v; want 2", n, err)
+	}
+}
