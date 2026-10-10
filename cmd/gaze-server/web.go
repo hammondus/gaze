@@ -274,6 +274,10 @@ type page struct {
 	CSRF   string
 	Error  string
 	Authed bool // whether to draw the signed-in chrome (nav, logout)
+	// Version is this server's build, shown beside the name once signed
+	// in. The sign-in page leaves it out: the version tells a stranger
+	// which known flaws to try.
+	Version string
 	// Refresh, when non-zero, reloads the page after that many seconds.
 	// Only the host list sets it: a page with a form or a once-shown
 	// secret would lose what it holds.
@@ -294,6 +298,7 @@ func (s *webServer) render(w http.ResponseWriter, r *http.Request, name string, 
 	}
 
 	p.Asset = s.assetVer
+	p.Version = s.gate.serverVersion()
 	p.CSRF = s.csrfToken(w, r)
 
 	// Buffer first. A template that fails halfway would otherwise have

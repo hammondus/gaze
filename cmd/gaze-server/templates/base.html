@@ -10,6 +10,7 @@
 <body>
 <header>
   <a class="brand" href="/">gaze</a>
+  {{if and .Authed .Version}}<span class="version">{{.Version}}</span>{{end}}
   {{if .Authed}}
   <nav>
     <a href="/hosts/enroll">enrol a host</a>

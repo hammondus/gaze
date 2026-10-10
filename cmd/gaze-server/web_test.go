@@ -226,6 +226,21 @@ func TestSetupThenSignIn(t *testing.T) {
 	}
 }
 
+// TestHeaderVersion: a signed-in page names the server's build, and the
+// sign-in page does not.
+func TestHeaderVersion(t *testing.T) {
+	w := newTestWeb(t)
+	want := `<span class="version">` + testLatest + `</span>`
+
+	if _, body := w.get("/login"); strings.Contains(body, `class="version"`) {
+		t.Fatalf("sign-in page shows the version:\n%s", body)
+	}
+	w.setupAndSignIn()
+	if _, body := w.get("/"); !strings.Contains(body, want) {
+		t.Fatalf("host list header missing %s:\n%s", want, body)
+	}
+}
+
 func TestSetupNeedsTheCode(t *testing.T) {
 	w := newTestWeb(t)
 
