@@ -37,6 +37,12 @@ services:
       - GAZE_SMTP_PASSWORD
       - GAZE_SMTP_FROM
       - GAZE_ALERT_TO
+      # The time zone the pages print clock times in, such as the host
+      # list's "as of" line. Unset is UTC. The image carries the zone
+      # database, so an IANA name in .env is all it takes:
+      #
+      #   echo "TZ=Australia/Queensland" >> .env
+      - TZ
     volumes:
       # A named volume rather than a bind mount: the container runs as its
       # own unprivileged user (uid 65532, distroless's `nonroot`), and the

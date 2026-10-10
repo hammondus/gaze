@@ -158,22 +158,27 @@ func (c *Collector) Collect(ctx context.Context) Snapshot {
 	}
 
 	// Uptime is cheap and changes every tick, unlike the rest of Host. The
-	// reboot marker is the same: unattended upgrades install kernels under a
-	// running monitor, so it is checked per collection, not at start-up.
+	// reboot marker and the update counts are the same: unattended upgrades
+	// install packages under a running monitor, so both are read per
+	// collection, not at start-up. Each is one small file.
 	if f, err := c.src.Proc.Open("uptime"); err == nil {
 		s.Host.Uptime, _ = parseUptime(f)
 		f.Close()
 	}
 	s.Host.RebootRequired = c.rebootRequired()
+	var err error
+	s.Host.Updates, err = readUpdates(c.src.State)
+	fail(err)
 
 	c.prevAt = now
 	return s
 }
 
 // rebootRequired reports whether the distribution has flagged that a boot is
-// needed. Debian and Ubuntu package hooks create /run/reboot-required when an
-// upgrade — a kernel, libc — takes effect only after a restart, and the check
-// is one stat of that path.
+// needed. Package hooks create /run/reboot-required when an upgrade — a
+// kernel, libc — takes effect only after a restart: on Ubuntu by default, on
+// Debian through unattended-upgrades' kernel hook. The check is one stat of
+// that path.
 //
 // Nothing is inferred where the marker convention does not exist: no
 // comparing the running kernel against /lib/modules, and never an exec of

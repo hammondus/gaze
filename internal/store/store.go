@@ -309,4 +309,16 @@ ALTER TABLE hosts ADD COLUMN cfg_report_s INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE hosts ADD COLUMN cfg_containers INTEGER;
 ALTER TABLE hosts ADD COLUMN update_requested_at INTEGER;
 ALTER TABLE hosts ADD COLUMN declined TEXT NOT NULL DEFAULT '';
+`, `
+-- Patch standing, from the agent's latest observation. Raw tier only: the
+-- host list reads the newest raw report, and nobody asks what the update
+-- count was last March, so roll-ups leave these at their defaults.
+-- reboot_required 0 means no statement from the distribution, not "up to
+-- date". The updates_* columns are NULL when the host has no apt hook —
+-- "not counted" and "nothing pending" are different facts.
+-- updates_counted is the agent's clock, in Unix seconds.
+ALTER TABLE reports ADD COLUMN reboot_required INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reports ADD COLUMN updates_upgradable INTEGER;
+ALTER TABLE reports ADD COLUMN updates_security INTEGER;
+ALTER TABLE reports ADD COLUMN updates_counted INTEGER;
 `}

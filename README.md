@@ -281,6 +281,56 @@ sudo -i
    journalctl -u gaze-agent -f
    ```
 
+9. Optional, on Debian and Ubuntu: install the apt hook so the host list
+   shows pending updates. See
+   [counting pending updates](#counting-pending-updates).
+
+#### Counting pending updates
+
+The agent never runs apt: it runs unprivileged and reads files only. To
+count pending updates, install an apt hook. Apt runs the hook as root after
+every successful package-list refresh and after every install, and the
+hook writes two numbers to `/var/lib/gaze/updates` for the agent to read.
+Each apt run costs one simulated upgrade, which takes seconds at most.
+
+1. In the same root shell, download both files and check them:
+
+   ```sh
+   curl -fsSL "$base/gaze-apt-updates" -o gaze-apt-updates
+   curl -fsSL "$base/gaze-apt-updates.conf" -o gaze-apt-updates.conf
+   grep -E ' gaze-apt-updates(\.conf)?$' SHA256SUMS | sha256sum -c
+   ```
+
+2. Install them, then take the first count:
+
+   ```sh
+   install -m 0755 gaze-apt-updates /usr/local/sbin/
+   install -m 0644 gaze-apt-updates.conf /etc/apt/apt.conf.d/90gaze-apt-updates.conf
+   /usr/local/sbin/gaze-apt-updates
+   cat /var/lib/gaze/updates
+   ```
+
+   Apt runs the script as root, so keep it root-owned and out of any
+   directory the `gaze` user can write — not `/usr/local/lib/gaze`, which
+   remote update makes writable.
+
+3. To check the count, compare it with apt's own list. The numbers match
+   when the package lists are fresh, except on Ubuntu while an update is
+   phased: `apt list` includes it, and `apt upgrade` and the hook do not.
+
+   ```sh
+   apt list --upgradable 2>/dev/null | grep -c upgradable
+   ```
+
+The count is only as fresh as the last `apt update`. The daily apt timer
+refreshes the lists when `unattended-upgrades` is configured; without it,
+the host list marks a count older than three days as out of date. A host
+without the hook shows a dash, never zero.
+
+On Debian, the restart flag depends on `unattended-upgrades` too: its
+kernel hook creates `/run/reboot-required`. Ubuntu creates the marker by
+default.
+
 ## The server
 
 `gaze-server` ingests and stores reports in SQLite: raw for 7 days, 5-minute
@@ -291,8 +341,15 @@ one that has never reported, and per-host graphs — server-rendered SVG, no
 JavaScript — with tables for filesystems, containers, and the busiest
 processes. The host page hides the virtual devices as the dashboard does, and
 says how many; the link that shows them keeps the time range you were on.
-The host list reloads itself every minute; to see new data on a host page,
-reload the page. The server can also serve the TUI over SSH, which updates
+The host list reloads itself every minute and prints the time it was read;
+to see new data on a host page, reload the page.
+
+Each row of the host list also shows uptime, a **restart** flag when the
+distribution says an installed upgrade needs a boot, memory and the fullest
+filesystem coloured by the same thresholds the TUI and the alert rules
+use, and the pending update count from the
+[apt hook](#counting-pending-updates). Hover over the disk figure to see
+every filesystem. The server can also serve the TUI over SSH, which updates
 live. See [The SSH view](#the-ssh-view).
 
 It deploys as a container behind a TLS-terminating proxy and is never a
@@ -311,6 +368,13 @@ software there is a clone of this repository.
 
    `GAZE_KEY` seals the admin's TOTP secret; `.env` is git-ignored, and the
    key must stay out of the repository and away from the database.
+
+   To print clock times in your own time zone rather than UTC, add its
+   IANA name to the same file:
+
+   ```
+   echo "TZ=Australia/Queensland" >> .env
+   ```
 
 2. Wire the container to your proxy. `compose.yml` is deliberately
    unreachable as checked in — no published port, no shared network —
@@ -537,6 +601,7 @@ still planned, see [ROADMAP.md](ROADMAP.md).
 | `internal/query` | Read-only reconstruction of per-host views |
 | `internal/devices` | Which interfaces and block devices are virtual. Standard library only. |
 | `internal/alert` | Threshold rules, staleness, and mail on transitions |
+| `internal/threshold` | The warning and critical points the TUI, the web pages, and the alerts share. Standard library only. |
 | `internal/ui` | Bubble Tea model, panels, and formatting |
 | `internal/update` | `--update` and `--check-update` |
 

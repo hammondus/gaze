@@ -15,6 +15,7 @@ import (
 	"github.com/hammondus/gaze/internal/query"
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
+	"github.com/hammondus/gaze/internal/threshold"
 )
 
 // staleAfter is how long after its last report a host is drawn as stale:
@@ -39,12 +40,48 @@ func hostState(lastSeen time.Time) (label, class string) {
 	}
 }
 
+// updatesOldAfter is when an update count stops being news. The daily apt
+// timer refreshes the package lists, and the hook recounts on every
+// refresh, so a count three days old means the refresh has stopped — and
+// "0 updates" from a list nobody has refreshed is not good news.
+const updatesOldAfter = 72 * time.Hour
+
+// levelClass maps a threshold level onto the stylesheet's colour classes.
+// Red is the alert threshold, the same as in the TUI and the alert mail.
+func levelClass(l threshold.Level) string {
+	switch l {
+	case threshold.Crit:
+		return "bad"
+	case threshold.Warn:
+		return "warn"
+	}
+	return ""
+}
+
+// fleetView is the host list page: the rows, and the time they were read,
+// so a reload is visible.
+type fleetView struct {
+	Now  time.Time
+	Rows []fleetRow
+}
+
 // fleetRow is one host on the list.
 type fleetRow struct {
 	query.Overview
 	State      string
 	StateClass string
 	MemPct     float64
+	MemClass   string
+
+	// The fullest filesystem, and every filesystem for the hover text.
+	// DiskPath is empty when the latest report carried no mounts.
+	DiskPath  string
+	DiskPct   float64
+	DiskClass string
+	DiskTitle string
+
+	// UpdatesOld marks a count taken more than updatesOldAfter ago.
+	UpdatesOld bool
 
 	// The remote-configuration standing. A declined directive must be as
 	// visible here as an applied one.
@@ -64,6 +101,20 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 		row.State, row.StateClass = hostState(o.LastSeen)
 		if o.MemTotal > 0 {
 			row.MemPct = o.MemUsed / float64(o.MemTotal) * 100
+			row.MemClass = levelClass(threshold.Memory.Of(row.MemPct))
+		}
+		if len(o.Mounts) > 0 {
+			// Fleet sorts mounts fullest first.
+			row.DiskPath, row.DiskPct = o.Mounts[0].Path, o.Mounts[0].Percent
+			row.DiskClass = levelClass(threshold.Disk.Of(row.DiskPct))
+			lines := make([]string, len(o.Mounts))
+			for i, m := range o.Mounts {
+				lines[i] = fmt.Sprintf("%s %s of %s", fmtPercent(m.Percent), m.Path, fmtBytes(m.Total))
+			}
+			row.DiskTitle = strings.Join(lines, "\n")
+		}
+		if o.Updates != nil {
+			row.UpdatesOld = time.Since(o.Updates.Counted) > updatesOldAfter
 		}
 		row.CfgStatus, row.CfgClass = configStatus(o.Generation, o.CfgGeneration, o.Declined)
 		rows = append(rows, row)
@@ -71,7 +122,8 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 	// The host list reloads on the agents' default report interval, so a
 	// host going stale shows without a manual refresh. The page is a
 	// glance; graphs and forms elsewhere keep the manual reload.
-	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Refresh: 60, Data: rows})
+	s.render(w, r, "fleet", page{Title: "Hosts", Authed: true, Refresh: 60,
+		Data: fleetView{Now: time.Now(), Rows: rows}})
 }
 
 // ranges are the spans the host page offers. An ordered slice, not a map:

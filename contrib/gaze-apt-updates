@@ -1,0 +1,44 @@
+#!/bin/sh
+# gaze-apt-updates: counts the upgrades apt would install, for gaze-agent.
+#
+# apt runs this as root after every successful package-list refresh and
+# after every install (see gaze-apt-updates.conf), and it writes two counts
+# to /var/lib/gaze/updates. The agent reads that file unprivileged; it never
+# runs apt itself.
+#
+# Install, as root:
+#   install -m 0755 gaze-apt-updates /usr/local/sbin/
+#   install -m 0644 gaze-apt-updates.conf /etc/apt/apt.conf.d/90gaze-apt-updates.conf
+#   /usr/local/sbin/gaze-apt-updates
+#
+# Keep this script root-owned and out of any directory the gaze user can
+# write: apt runs it as root.
+#
+# The counting follows check_apt from monitoring-plugins:
+#   - --with-new-pkgs counts what `apt upgrade` installs, kernels included;
+#     plain `apt-get upgrade` keeps a new kernel package back.
+#   - Debug::NoLocking lets the count run inside apt's own hooks, which
+#     hold the lock. A simulation changes nothing, so it needs no lock.
+#   - Phased updates on Ubuntu are held back by the simulation, so the count
+#     matches what `apt upgrade` would install today.
+#   - Security is a candidate from Debian-Security, or from an Ubuntu
+#     *-security pocket.
+#
+# This script must never fail apt, so every path exits 0. A failed count
+# leaves the previous file alone; its age is what shows the count is old.
+
+out=/var/lib/gaze/updates
+
+command -v apt-get >/dev/null 2>&1 || exit 0
+
+sim=$(LC_ALL=C apt-get -o Debug::NoLocking=true --with-new-pkgs -s -qq upgrade 2>/dev/null) || exit 0
+inst=$(printf '%s\n' "$sim" | grep '^Inst ')
+all=$(printf '%s\n' "$inst" | grep -c '^Inst ')
+sec=$(printf '%s\n' "$inst" | grep -cE '^[^(]*[(].* (Debian-Security:|Ubuntu:[^/]*/[^-]*-security)')
+
+mkdir -p "${out%/*}" || exit 0
+# Write then rename, so the agent never reads half a file.
+printf 'upgradable=%d\nsecurity=%d\n' "$all" "$sec" >"$out.tmp" &&
+	chmod 0644 "$out.tmp" &&
+	mv -f "$out.tmp" "$out"
+exit 0

@@ -66,6 +66,10 @@ snapshots to what goes over the wire.
   machines, staleness, re-notify suppression, and mail through
   `github.com/hammondus/mailer`. Thresholds evaluate on ingest; staleness
   sweeps on a timer. Tests use `mailer.MemorySender`; no SMTP anywhere.
+- `internal/threshold` — the one table of warning and critical points.
+  The TUI and the host list colour by it, and each alert rule fires at its
+  critical point. **Standard library only.** Change a number here, never
+  in a caller.
 - `internal/query` — read-only reconstruction of per-host views for
   presentation. The stage-5 web front end and stage-6 SSH TUI call it;
   neither writes SQL.

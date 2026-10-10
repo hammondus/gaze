@@ -204,10 +204,19 @@ them would under-report a filesystem that is full for everyone but root.
 ## Restart required is the distribution's marker
 
 The context line warns "restart required" when `/run/reboot-required`
-exists — the file Debian and Ubuntu package hooks create when an installed
-upgrade, such as a kernel or libc, takes effect only after a boot. The check
-is a stat of one path, unprivileged, and runs every collection, because
-unattended upgrades install kernels under a running monitor.
+exists — the file package hooks create when an installed upgrade, such as a
+kernel or libc, takes effect only after a boot. The check is a stat of one
+path, unprivileged, and runs every collection, because unattended upgrades
+install kernels under a running monitor.
+
+Who creates the marker differs between the two distributions. Ubuntu's
+default install carries hooks for the kernel, libc, systemd, and others. On
+Debian, the marker comes mostly from the kernel hook that
+`unattended-upgrades` installs, so a Debian host without that package can
+take a kernel upgrade and never say so. The README's agent install notes
+this; installing `unattended-upgrades` on Debian is the fix, and it also
+keeps the package lists fresh for the update count below. Recent Ubuntu
+releases also skip the marker for a kernel update when Livepatch is on.
 
 The alternatives lost on gaze's own constraints. `needrestart` gives the
 richest answer — which services map deleted libraries — but it wants root,
@@ -222,10 +231,66 @@ trust faster than one that stays silent.
 
 So the rule is: report the distribution's own statement, infer nothing.
 On distributions without the marker convention the flag is always false,
-which means "no statement", not "up to date". The field sits on Host in the
-snapshot and does not cross the wire; putting it in the report so the fleet
-pages and alerting can see it is an additive change for a deliberate later
-step.
+which means "no statement", not "up to date". The flag crosses the wire as
+`reboot_required` on the report's host, an additive field, so the host list
+and the SSH view show it. Nothing alerts on it: a pending restart is
+planned work, not an incident.
+
+## Pending updates come from an apt hook, not the agent
+
+The host list counts pending upgrades from a file, `/var/lib/gaze/updates`,
+that an apt hook writes. Apt runs the hook as root after every successful
+package-list refresh (`APT::Update::Post-Invoke-Success`) and after every
+install (`DPkg::Post-Invoke`). The hook simulates `apt-get --with-new-pkgs
+upgrade` and counts the `Inst` lines, and the security subset by origin. The
+agent reads two numbers and the file's modification time. The hook and its
+apt configuration ship in `contrib/` and as release assets.
+
+The hook lets the agent keep its rules: unprivileged, file reads only, no
+exec. It also answers at the right time. The count can only change when
+the package lists or the installed set change, and those are exactly the
+two events apt reports through these hooks. Ubuntu's own login message
+uses the same two hooks. The counting follows `check_apt` from
+monitoring-plugins, which many monitoring setups already run.
+
+Details that matter:
+
+- **`--with-new-pkgs`.** Plain `apt-get upgrade` keeps back an upgrade
+  that needs a new package, and every kernel update on both distributions
+  is one. Without the flag, the count misses the update most likely to
+  need a restart.
+- **Phased updates.** On Ubuntu, the simulation holds back an update that
+  is still phasing, so the count matches what `apt upgrade` installs today.
+  `apt list --upgradable` includes phased updates, so the two can differ.
+- **The count carries its age.** The count is only as fresh as the last
+  `apt update`. On Debian, the daily timer refreshes nothing unless
+  `unattended-upgrades` is configured. The host list marks a count older
+  than three days as out of date, because "0 updates" from a stale list is
+  not good news.
+- **No file is not zero.** A host without the hook reports nothing, stores
+  NULL, and shows a dash. A garbled file is an error in `Snapshot.Errs`, not
+  a zero.
+- **The hook never fails apt.** Every path exits 0, and a failed count
+  leaves the previous file in place for its age to expose.
+- **The script is root-run, so it is root-owned.** It installs in
+  `/usr/local/sbin`, never in `/usr/local/lib/gaze`, which remote update
+  makes writable by the `gaze` user.
+
+Alternatives that lost:
+
+- **The agent runs `apt list --upgradable` or `apt-get -s`.** Collection is
+  file reads only, a dependency solve takes seconds on every sample, and
+  the result is still only as fresh as the lists.
+- **The agent compares `/var/lib/dpkg/status` against the package lists
+  itself.** No exec, but the agent would have to reimplement apt's
+  candidate selection: pinning, backports at priority 100, and phasing. A
+  naive version comparison over-counts, and the same "a false alarm costs
+  more trust than silence" rule as the restart marker applies.
+- **Ubuntu's `/var/lib/update-notifier/updates-available`.** Ubuntu only,
+  and it contains translated text for people to read, not numbers.
+
+The count is stored on the raw report row, like uptime, and roll-ups drop
+it. Nobody asks what the update count was last March.
 
 ## Which devices and filesystems appear
 
@@ -1585,6 +1650,36 @@ Stage 7 settled the details, recorded rather than rediscovered:
 - **A never-reported host is not stale.** Enrolment without an agent is
   setup in progress; the staleness alert starts existing the first time
   the server hears from the host at all.
+
+## One threshold table for the TUI, the web pages, and the alerts
+
+`internal/threshold` holds the warning and critical points for CPU,
+memory, swap, and filesystems. The TUI colours by the table, the host list
+colours by it, and each alert rule's threshold is the table's critical
+point. Red therefore means the same thing everywhere: at or past the point
+that mails you.
+
+Before the table existed, the three copies had drifted. The alert code
+claimed to follow the TUI's critical colours while memory alerted at 92
+and turned red at 90, filesystems alerted at 90 and turned red at 92, and
+swap alerted at 80 and turned red at 60. The table settled each pair on
+the alert's number, and moved memory's warning from 75 to 80 to match
+filesystems. Load and temperature stay local to the TUI: no rule alerts on
+them.
+
+The package is standard library only, because the `gaze` binary imports
+it. A colour is drawn at or above the critical point; a rule fires above it
+for fifteen minutes. The two differ only at exactly the threshold.
+
+## The host list prints the time it was read
+
+The host list reloads itself, and nothing on a reloaded page shows that a
+reload happened when every host is steady. An "as of" line with the server's
+date, time, and zone name confirms the page is current. The server reads
+its zone from `TZ`, which `compose.yml` passes through from `.env`;
+distroless carries the zone database. Unset is UTC, and the zone name on
+the line makes that visible rather than leaving a UTC clock to pass for
+local time.
 
 ## The server image is distroless/static, and the Debian release is in the tag
 

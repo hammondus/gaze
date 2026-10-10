@@ -11,8 +11,9 @@ import "os"
 // build constraint.
 func NewSource() Source {
 	return Source{
-		Proc: os.DirFS("/proc"),
-		Sys:  os.DirFS("/sys"),
-		Run:  os.DirFS("/run"),
+		Proc:  os.DirFS("/proc"),
+		Sys:   os.DirFS("/sys"),
+		Run:   os.DirFS("/run"),
+		State: os.DirFS("/var/lib/gaze"),
 	}
 }

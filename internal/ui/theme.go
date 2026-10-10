@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/hammondus/gaze/internal/threshold"
+)
 
 // The palette is adaptive: lipgloss picks the first value on a dark terminal
 // and the second on a light one. Terminal themes vary too much for a single
@@ -35,16 +39,19 @@ var (
 // colour of the bar beside it.
 type thresholds struct{ warn, crit float64 }
 
+// The four that have an alert rule come from the shared table, so a red
+// number here is one the server alerts on. Load and temperature have no rule
+// and stay local.
 var (
-	// Swap is judged harder than memory. A machine using its swap at all is
-	// already paying for it, whereas full memory is what memory is for.
-	thCPU  = thresholds{70, 90}
-	thMem  = thresholds{75, 90}
-	thSwap = thresholds{25, 60}
-	thDisk = thresholds{80, 92}
+	thCPU  = shared(threshold.CPU)
+	thMem  = shared(threshold.Memory)
+	thSwap = shared(threshold.Swap)
+	thDisk = shared(threshold.Disk)
 	thLoad = thresholds{70, 100} // as a percentage of core count
 	thTemp = thresholds{70, 85}  // used only when the chip publishes none
 )
+
+func shared(t threshold.T) thresholds { return thresholds{t.Warn, t.Crit} }
 
 // styleFor picks the colour for a value against its thresholds.
 func (t thresholds) styleFor(v float64) lipgloss.Style {

@@ -1,24 +1,32 @@
 {{define "content"}}
 <h1>Hosts</h1>
-{{if not .Data}}
+<p class="meta">as of {{.Data.Now.Format "2006-01-02 15:04:05 MST"}} · reloads every minute</p>
+{{if not .Data.Rows}}
 <p>No hosts are enrolled yet. <a href="/hosts/enroll">Enrol the first one.</a></p>
 {{else}}
 <table class="fleet">
   <thead>
-    <tr><th>host</th><th>state</th><th>last seen</th><th class="num">cpu</th><th class="num">memory</th><th class="num">procs</th><th>agent</th><th>config</th></tr>
+    <tr><th>host</th><th>state</th><th>last seen</th><th>uptime</th><th class="num">cpu</th><th class="num">memory</th><th class="num">disk</th><th>updates</th><th class="num">procs</th><th>agent</th><th>config</th></tr>
   </thead>
   <tbody>
-  {{range .Data}}
+  {{range .Data.Rows}}
+    {{$row := .}}
     <tr class="{{.StateClass}}">
       <td><a href="/hosts/{{.ID}}">{{.Name}}</a></td>
       <td><span class="chip {{.StateClass}}">{{.State}}</span></td>
       <td>{{if .LastSeen.IsZero}}—{{else}}{{ago .LastSeen}}{{end}}</td>
       {{if .HasReport}}
+      <td>{{uptime .Uptime}}{{if .RebootRequired}} <span class="chip warn" title="The distribution says an installed upgrade takes effect only after a restart.">restart</span>{{end}}</td>
       <td class="num">{{percent .CPU}}</td>
-      <td class="num">{{percent .MemPct}} <span class="dim">of {{bytes .MemTotal}}</span></td>
+      <td class="num"><span class="{{.MemClass}}">{{percent .MemPct}}</span> <span class="dim">of {{bytes .MemTotal}}</span></td>
+      <td class="num"{{if .DiskTitle}} title="{{.DiskTitle}}"{{end}}>{{if .DiskPath}}<span class="{{.DiskClass}}">{{percent .DiskPct}}</span> <span class="dim">{{.DiskPath}}</span>{{else}}—{{end}}</td>
+      <td>{{with .Updates}}
+        {{- if .Upgradable}}{{.Upgradable}}{{if .Security}} · <span class="warn">{{.Security}} security</span>{{end}}{{else}}<span class="dim">none</span>{{end}}
+        {{- if $row.UpdatesOld}} <span class="warn" title="The count is only as fresh as the last apt update.">counted {{ago .Counted}}</span>{{end}}
+        {{- else}}<span class="dim" title="No apt hook on this host, so nothing has counted its updates.">—</span>{{end}}</td>
       <td class="num">{{.Procs}}{{if .Zombies}} <span class="warn">({{.Zombies}}Z)</span>{{end}}</td>
       {{else}}
-      <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+      <td>—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>—</td><td class="num">—</td>
       {{end}}
       <td class="dim">{{if .AgentVersion}}{{.AgentVersion}}{{else}}—{{end}}</td>
       <td>{{if .CfgStatus}}<span class="chip {{.CfgClass}}">{{.CfgStatus}}</span>{{else}}<span class="dim">—</span>{{end}}</td>

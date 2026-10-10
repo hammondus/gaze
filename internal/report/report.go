@@ -91,6 +91,22 @@ type Host struct {
 	Kernel        string `json:"kernel,omitempty"`
 	CPUCount      int    `json:"cpus"`
 	UptimeSeconds int64  `json:"uptime_s"`
+
+	// RebootRequired is the distribution's statement that an installed
+	// upgrade takes effect only after a boot. False means no statement, not
+	// "up to date". Updates is nil when the host has no apt hook installed,
+	// which is "not counted" — a different fact from zero pending.
+	RebootRequired bool     `json:"reboot_required,omitzero"`
+	Updates        *Updates `json:"updates,omitzero"`
+}
+
+// Updates is the apt hook's count of pending upgrades. Counted is when the
+// hook took it, on the agent's clock; the count is only as fresh as the
+// package lists it came from.
+type Updates struct {
+	Upgradable int       `json:"upgradable"`
+	Security   int       `json:"security"`
+	Counted    time.Time `json:"counted"`
 }
 
 // Gauge is a capacity and how much of it was in use across the samples.

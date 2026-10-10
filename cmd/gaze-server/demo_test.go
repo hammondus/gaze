@@ -105,7 +105,7 @@ func demoReport(name string, t time.Time) report.Report {
 		return report.Stat{Min: mean - spread, Max: mean + spread, Mean: mean}
 	}
 	rx := 200e3 + 150e3*math.Sin(phase*2)
-	return report.Report{
+	r := report.Report{
 		Schema:  report.Schema,
 		Version: "v0.5.0",
 		Host:    report.Host{Hostname: name, Kernel: "6.8.0-45-generic", CPUCount: 4, UptimeSeconds: int64(t.Unix() % 4_000_000)},
@@ -148,4 +148,13 @@ func demoReport(name string, t time.Time) report.Report {
 		},
 		ContainerRuntime: "docker",
 	}
+	// One host with a restart and updates pending, the other with a count
+	// gone out of date, so the host list shows both standings.
+	if name == "web-01" {
+		r.Host.RebootRequired = true
+		r.Host.Updates = &report.Updates{Upgradable: 12, Security: 3, Counted: t.Add(-2 * time.Hour)}
+	} else {
+		r.Host.Updates = &report.Updates{Counted: t.Add(-5 * 24 * time.Hour)}
+	}
+	return r
 }

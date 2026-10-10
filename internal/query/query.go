@@ -77,6 +77,16 @@ type Overview struct {
 	MemTotal  uint64
 	Procs     int
 	Zombies   int
+	Uptime    int64 // seconds, as of the latest report
+
+	// Patch standing, from the latest report: see report.Host for what
+	// false and nil mean.
+	RebootRequired bool
+	Updates        *report.Updates
+
+	// Mounts is every filesystem in the latest report, fullest first, so
+	// the list can show the one closest to full.
+	Mounts []report.Mount
 
 	// Remote-management standing: the desired configuration generation
 	// beside the echoed one in Host.Generation, the agent's refusal text,
@@ -95,7 +105,9 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 		       h.schema, COALESCE(h.last_seen_at, 0),
 		       h.cfg_generation, h.declined,
 		       h.update_requested_at IS NOT NULL,
-		       r.cpu_mean, r.mem_mean, r.mem_total, r.procs, r.procs_zombie
+		       r.cpu_mean, r.mem_mean, r.mem_total, r.procs, r.procs_zombie,
+		       r.uptime_s, r.reboot_required,
+		       r.updates_upgradable, r.updates_security, r.updates_counted
 		FROM hosts h
 		LEFT JOIN reports r ON r.host_id = h.id AND r.tier = 0
 		 AND r.start = (SELECT max(start) FROM reports
@@ -111,11 +123,14 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 		var o Overview
 		var seen int64
 		var cpu, mem sql.NullFloat64
-		var memTotal, procs, zombies sql.NullInt64
+		var memTotal, procs, zombies, uptime sql.NullInt64
+		var reboot sql.NullBool
+		var upgradable, security, counted sql.NullInt64
 		if err := rows.Scan(&o.ID, &o.Name, &o.Kernel, &o.CPUs,
 			&o.AgentVersion, &o.Generation, &o.Schema, &seen,
 			&o.CfgGeneration, &o.Declined, &o.UpdateAsked,
-			&cpu, &mem, &memTotal, &procs, &zombies); err != nil {
+			&cpu, &mem, &memTotal, &procs, &zombies,
+			&uptime, &reboot, &upgradable, &security, &counted); err != nil {
 			return nil, err
 		}
 		if seen > 0 {
@@ -128,10 +143,61 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 			o.MemTotal = uint64(memTotal.Int64)
 			o.Procs = int(procs.Int64)
 			o.Zombies = int(zombies.Int64)
+			o.Uptime = uptime.Int64
+			o.RebootRequired = reboot.Bool
+			o.Updates = updates(upgradable, security, counted)
 		}
 		out = append(out, o)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, q.fleetMounts(ctx, out)
+}
+
+// fleetMounts fills each host's Mounts from its newest raw report. One
+// query for the whole list, not one per host.
+func (q *Q) fleetMounts(ctx context.Context, fleet []Overview) error {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT m.host_id, m.path, m.device, m.fstype, m.total, m.used, m.percent
+		FROM mount_reports m
+		JOIN (SELECT host_id, max(start) AS start FROM reports
+		       WHERE tier = 0 GROUP BY host_id) l
+		  ON m.host_id = l.host_id AND m.tier = 0 AND m.start = l.start
+		ORDER BY m.host_id, m.percent DESC, m.path`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byID := make(map[int64]*Overview, len(fleet))
+	for i := range fleet {
+		byID[fleet[i].ID] = &fleet[i]
+	}
+	for rows.Next() {
+		var id int64
+		var m report.Mount
+		if err := rows.Scan(&id, &m.Path, &m.Device, &m.FSType, &m.Total, &m.Used, &m.Percent); err != nil {
+			return err
+		}
+		if o := byID[id]; o != nil {
+			o.Mounts = append(o.Mounts, m)
+		}
+	}
+	return rows.Err()
+}
+
+// updates rebuilds a report's update count from its three columns, which
+// are NULL together when the host had no apt hook.
+func updates(upgradable, security, counted sql.NullInt64) *report.Updates {
+	if !upgradable.Valid {
+		return nil
+	}
+	return &report.Updates{
+		Upgradable: int(upgradable.Int64),
+		Security:   int(security.Int64),
+		Counted:    time.Unix(counted.Int64, 0),
+	}
 }
 
 // Point is one aggregated observation of a host's scalars.
@@ -309,6 +375,7 @@ func (q *Q) Latest(ctx context.Context, hostID int64) (*report.Report, error) {
 	var r report.Report
 	var start, stop, uptime int64
 	var absent string
+	var upgradable, security, counted sql.NullInt64
 	err := q.db.QueryRowContext(ctx, `
 		SELECT start, stop, samples, schema,
 		       cpu_min, cpu_max, cpu_mean,
@@ -320,7 +387,8 @@ func (q *Q) Latest(ctx context.Context, hostID int64) (*report.Report, error) {
 		       uptime_s,
 		       procs, procs_running, procs_sleeping, procs_stopped,
 		       procs_zombie, procs_threads, procs_kernel,
-		       container_runtime, containers_disabled, absent
+		       container_runtime, containers_disabled, absent,
+		       reboot_required, updates_upgradable, updates_security, updates_counted
 		FROM reports WHERE host_id = ? AND tier = ?
 		ORDER BY start DESC LIMIT 1`, hostID, store.TierRaw).Scan(
 		&start, &stop, &r.Samples, &r.Schema,
@@ -333,12 +401,14 @@ func (q *Q) Latest(ctx context.Context, hostID int64) (*report.Report, error) {
 		&uptime,
 		&r.Procs.Total, &r.Procs.Running, &r.Procs.Sleeping, &r.Procs.Stopped,
 		&r.Procs.Zombie, &r.Procs.Threads, &r.Procs.Kernel,
-		&r.ContainerRuntime, &r.ContainersDisabled, &absent)
+		&r.ContainerRuntime, &r.ContainersDisabled, &absent,
+		&r.Host.RebootRequired, &upgradable, &security, &counted)
 	if err != nil {
 		return nil, err
 	}
 	r.Start, r.End = time.Unix(start, 0), time.Unix(stop, 0)
 	r.Host.UptimeSeconds = uptime
+	r.Host.Updates = updates(upgradable, security, counted)
 	if absent != "" {
 		r.Absent = strings.Split(absent, ",")
 	}

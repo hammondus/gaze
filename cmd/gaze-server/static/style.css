@@ -74,6 +74,7 @@ a { color: var(--accent-b); }
 .meta { color: var(--dim); margin-top: -0.4rem; }
 .dim { color: var(--dim); }
 .warn { color: var(--warn); }
+.bad { color: var(--bad); }
 
 /* Forms */
 .stack { display: grid; gap: 0.8rem; max-width: 22rem; }
@@ -121,6 +122,7 @@ td a { text-decoration: none; }
 .chip.never { background: #22262b; color: var(--dim); }
 .chip.pending { background: #1c2740; color: var(--accent-b); }
 .chip.bad { background: #3a1720; color: var(--bad); }
+.chip.warn { background: #33270f; color: var(--warn); }
 tr.stale td, tr.never td { color: var(--dim); }
 tr.stale td:first-child a { color: var(--warn); }
 

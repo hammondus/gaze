@@ -364,6 +364,92 @@ func TestFleetStates(t *testing.T) {
 	}
 }
 
+// TestFleetCapacityAndPatching covers the columns a glance at the host list
+// has to answer from: memory and the fullest disk coloured by the shared
+// thresholds, a pending restart, and an update count that is counted, out
+// of date, or never counted — three standings that must not look alike.
+func TestFleetCapacityAndPatching(t *testing.T) {
+	w := newTestWeb(t)
+	ctx := t.Context()
+
+	post := func(name string, memPct float64, mounts []report.Mount, reboot bool, u *report.Updates) {
+		t.Helper()
+		token, err := w.store.Enroll(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := w.store.Authenticate(ctx, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const total = 8 << 30
+		used := memPct / 100 * total
+		r := report.Report{
+			Schema: report.Schema, Version: "v1.2.3",
+			Host: report.Host{Hostname: name, CPUCount: 4, UptimeSeconds: 3*86400 + 4*3600,
+				RebootRequired: reboot, Updates: u},
+			Start: time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+			Memory: report.Gauge{Total: total, Used: report.Stat{Min: used, Max: used, Mean: used}},
+			Mounts: mounts,
+			Procs:  report.ProcCounts{Total: 100},
+		}
+		if _, err := w.store.InsertReports(ctx, id, []report.Report{r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post("full-01", 85, []report.Mount{
+		{Path: "/", Device: "/dev/sda1", FSType: "ext4", Total: 100 << 30, Used: 50 << 30, Percent: 50},
+		{Path: "/var", Device: "/dev/sda2", FSType: "ext4", Total: 20 << 30, Used: 19 << 30, Percent: 93},
+	}, true, &report.Updates{Upgradable: 12, Security: 3, Counted: time.Now().Add(-time.Hour)})
+	post("old-01", 50, nil, false, &report.Updates{Counted: time.Now().Add(-5 * 24 * time.Hour)})
+	post("bare-01", 50, nil, false, nil)
+
+	w.setupAndSignIn()
+	_, body := w.get("/")
+	if !strings.Contains(body, "as of "+time.Now().Format("2006-01-02")) {
+		t.Error("host list does not say when it was read")
+	}
+
+	row := func(name string) string {
+		t.Helper()
+		i := strings.Index(body, ">"+name+"</a>")
+		if i < 0 {
+			t.Fatalf("no row for %s:\n%s", name, body)
+		}
+		end := strings.Index(body[i:], "</tr>")
+		return body[i : i+end]
+	}
+	for _, c := range []struct{ host, want, why string }{
+		{"full-01", `<span class="warn">85%</span>`, "memory over the warning point is not amber"},
+		{"full-01", `<span class="bad">93%</span> <span class="dim">/var</span>`, "the fullest disk is not shown red"},
+		{"full-01", `>restart</span>`, "a pending restart is not flagged"},
+		{"full-01", `3d 4h`, "uptime is missing"},
+		{"full-01", `12 · <span class="warn">3 security</span>`, "the update count is missing"},
+		{"old-01", `<span class="">50%</span>`, "memory under the warning point is coloured"},
+		{"old-01", `counted 5d ago`, "an out-of-date count does not say so"},
+		{"old-01", `>none<`, "a zero count does not read as none"},
+		{"bare-01", `No apt hook`, "an uncounted host looks counted"},
+	} {
+		if !strings.Contains(row(c.host), c.want) {
+			t.Errorf("%s: %s; want %q in:\n%s", c.host, c.why, c.want, row(c.host))
+		}
+	}
+	if strings.Contains(row("full-01"), "counted") {
+		t.Error("a fresh count is marked as out of date")
+	}
+	if strings.Contains(row("bare-01"), "restart") {
+		t.Error("restart flagged with no statement from the distribution")
+	}
+
+	// The host page carries the same standing, with the count's age always.
+	_, body = w.get("/hosts/1")
+	for _, want := range []string{"restart required", "updates pending: 12", "3 security", "(counted 1h 0m ago)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("host page missing %q", want)
+		}
+	}
+}
+
 // TestRefreshOnlyOnHostList pins the reload to the one page that is safe
 // to reload: the enrolment result shows its token once, and a reload there
 // would navigate away from it.

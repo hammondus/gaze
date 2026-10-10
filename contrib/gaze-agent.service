@@ -22,7 +22,8 @@ ExecStart=/usr/local/bin/gaze-agent -server https://gaze.example.net -token-file
 Restart=on-failure
 RestartSec=5
 
-# The agent reads /proc, /sys, and its token file, and writes nothing.
+# The agent reads /proc, /sys, its token file, /run/reboot-required, and the
+# apt hook's count in /var/lib/gaze, and writes nothing.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

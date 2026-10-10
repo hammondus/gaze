@@ -90,6 +90,9 @@ type Host struct {
 	// Debian and Ubuntu. False means no such statement, not "up to date":
 	// distributions without the marker convention always read false.
 	RebootRequired bool
+	// Updates is the apt hook's count of pending upgrades, nil when no hook
+	// has written one. Nil means "not counted", never "up to date".
+	Updates *Updates
 }
 
 // CPU holds the share of an interval spent in each scheduler state, as a

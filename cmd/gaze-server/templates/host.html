@@ -27,7 +27,10 @@
   {{if not .LastSeen.IsZero}}last seen {{ago .LastSeen}}{{else}}has never reported{{end}}
   {{if .Kernel}} · kernel {{.Kernel}}{{end}}
   {{if .CPUs}} · {{.CPUs}} cpus{{end}}
-  {{with .Latest}} · up {{uptime .Host.UptimeSeconds}}{{end}}
+  {{with .Latest}} · up {{uptime .Host.UptimeSeconds}}
+    {{- if .Host.RebootRequired}} · <span class="warn">restart required</span>{{end}}
+    {{- with .Host.Updates}} · updates pending: {{.Upgradable}}{{if .Security}}, <span class="warn">{{.Security}} security</span>{{end}} (counted {{ago .Counted}}){{end}}
+  {{- end}}
   {{if .AgentVersion}} · agent {{.AgentVersion}}{{end}}
 </p>
 

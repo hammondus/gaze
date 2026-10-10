@@ -44,6 +44,9 @@ func (q *Q) LatestSnapshot(ctx context.Context, hostID int64) (metrics.Snapshot,
 			Kernel:   kernel,
 			CPUCount: cpus,
 			Uptime:   time.Duration(r.Host.UptimeSeconds) * time.Second,
+			// The SSH view draws the same "restart required" warning as
+			// the local binary.
+			RebootRequired: r.Host.RebootRequired,
 		},
 		CPU:  metrics.CPU{Name: "cpu", Busy: r.CPU.Mean},
 		Load: metrics.Load{One: r.Load1.Mean, Five: r.Load5.Mean, Fifteen: r.Load15.Mean},

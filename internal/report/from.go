@@ -48,10 +48,11 @@ func From(samples []metrics.Snapshot, o Options) Report {
 	r := Report{
 		Schema: Schema,
 		Host: Host{
-			Hostname:      last.Host.Hostname,
-			Kernel:        last.Host.Kernel,
-			CPUCount:      last.Host.CPUCount,
-			UptimeSeconds: int64(last.Host.Uptime.Seconds()),
+			Hostname:       last.Host.Hostname,
+			Kernel:         last.Host.Kernel,
+			CPUCount:       last.Host.CPUCount,
+			UptimeSeconds:  int64(last.Host.Uptime.Seconds()),
+			RebootRequired: last.Host.RebootRequired,
 		},
 		Start:   samples[0].Taken,
 		End:     last.Taken,
@@ -82,6 +83,9 @@ func From(samples []metrics.Snapshot, o Options) Report {
 
 		ContainerRuntime:   last.ContainerRuntime,
 		ContainersDisabled: last.ContainersDisabled,
+	}
+	if u := last.Host.Updates; u != nil {
+		r.Host.Updates = &Updates{Upgradable: u.Upgradable, Security: u.Security, Counted: u.Counted}
 	}
 
 	r.Networks = reduceNetworks(samples)

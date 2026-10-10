@@ -50,10 +50,11 @@ run: $(DIST)/$(BIN)-linux-arm64 ## Run the real binary against a Linux kernel.
 # compatibility contract with every installed --update; add beside them,
 # never rename. The unit file ships with the release so that an install
 # fetches the unit written for the binary beside it, not whatever master
-# holds that day.
+# holds that day. The apt hook ships the same way, for the same reason.
+CONTRIB  := $(AGENT).service gaze-apt-updates gaze-apt-updates.conf
 RELEASED := $(DIST)/$(BIN)-linux-arm64 $(DIST)/$(BIN)-linux-amd64 \
             $(DIST)/$(AGENT)-linux-arm64 $(DIST)/$(AGENT)-linux-amd64 \
-            $(DIST)/$(AGENT).service
+            $(addprefix $(DIST)/,$(CONTRIB))
 
 .PHONY: release
 release: $(RELEASED) $(DIST)/SHA256SUMS ## Build the deploy artifacts.
@@ -68,8 +69,8 @@ dist: release ## Build the deploy artifacts. Alias for release.
 # Checksums let a target machine confirm it got the bytes you built. The tool
 # is named sha256sum on Linux and shasum on macOS.
 $(DIST)/SHA256SUMS: $(RELEASED)
-	@cd $(DIST) && { command -v sha256sum >/dev/null && sha256sum $(BIN)-linux-* $(AGENT)-linux-* $(AGENT).service \
-	  || shasum -a 256 $(BIN)-linux-* $(AGENT)-linux-* $(AGENT).service; } > SHA256SUMS
+	@cd $(DIST) && { command -v sha256sum >/dev/null && sha256sum $(BIN)-linux-* $(AGENT)-linux-* $(CONTRIB) \
+	  || shasum -a 256 $(BIN)-linux-* $(AGENT)-linux-* $(CONTRIB); } > SHA256SUMS
 	@cat $@
 
 .PHONY: publish
@@ -98,9 +99,10 @@ $(DIST)/$(AGENT)-linux-%: FORCE
 	@mkdir -p $(DIST)
 	$(GOENV) GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/gaze-agent
 
-$(DIST)/$(AGENT).service: contrib/$(AGENT).service
+# cp -p keeps the hook script's execute bit.
+$(addprefix $(DIST)/,$(CONTRIB)): $(DIST)/%: contrib/%
 	@mkdir -p $(DIST)
-	cp $< $@
+	cp -p $< $@
 
 $(DIST)/$(BIN)-linux-%: FORCE
 	@mkdir -p $(DIST)

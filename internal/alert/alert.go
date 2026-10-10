@@ -20,6 +20,7 @@ import (
 
 	"github.com/hammondus/gaze/internal/report"
 	"github.com/hammondus/gaze/internal/store"
+	"github.com/hammondus/gaze/internal/threshold"
 	"github.com/hammondus/mailer"
 )
 
@@ -57,18 +58,19 @@ type Rule struct {
 	observe   func(r *report.Report) []Observation
 }
 
-// rules is the default set. Thresholds follow the TUI's critical colours;
+// rules is the default set. Thresholds are the critical points of the shared
+// table in internal/threshold, which the TUI and the web pages colour by;
 // the durations are what make them alerts rather than noise — "above 90
 // for fifteen minutes" is a different statement from "above 90".
 var rules = []Rule{
 	{
-		ID: "cpu", What: "cpu", Threshold: 90, For: 15 * time.Minute,
+		ID: "cpu", What: "cpu", Threshold: threshold.CPU.Crit, For: 15 * time.Minute,
 		observe: func(r *report.Report) []Observation {
 			return []Observation{{Value: r.CPU.Mean}}
 		},
 	},
 	{
-		ID: "memory", What: "memory", Threshold: 92, For: 15 * time.Minute,
+		ID: "memory", What: "memory", Threshold: threshold.Memory.Crit, For: 15 * time.Minute,
 		observe: func(r *report.Report) []Observation {
 			if r.Memory.Total == 0 {
 				return nil
@@ -77,9 +79,7 @@ var rules = []Rule{
 		},
 	},
 	{
-		// Swap is judged harder than memory, same as the TUI's colours: a
-		// machine using most of its swap is already paying for it.
-		ID: "swap", What: "swap", Threshold: 80, For: 15 * time.Minute,
+		ID: "swap", What: "swap", Threshold: threshold.Swap.Crit, For: 15 * time.Minute,
 		observe: func(r *report.Report) []Observation {
 			if r.Swap.Total == 0 {
 				return nil // no swap is not full swap
@@ -88,7 +88,7 @@ var rules = []Rule{
 		},
 	},
 	{
-		ID: "mount", What: "filesystem", Threshold: 90, For: 15 * time.Minute,
+		ID: "mount", What: "filesystem", Threshold: threshold.Disk.Crit, For: 15 * time.Minute,
 		observe: func(r *report.Report) []Observation {
 			out := make([]Observation, 0, len(r.Mounts))
 			for _, m := range r.Mounts {

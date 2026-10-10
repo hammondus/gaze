@@ -84,6 +84,14 @@ func (s *Store) InsertReports(ctx context.Context, hostID int64, batch []report.
 }
 
 func insertReport(ctx context.Context, tx *sql.Tx, hostID int64, r report.Report, start, stop, receivedAt int64) error {
+	// No apt hook stores NULL, never zero: see the migration that added the
+	// columns.
+	var upgradable, security, counted sql.NullInt64
+	if u := r.Host.Updates; u != nil {
+		upgradable = sql.NullInt64{Int64: int64(u.Upgradable), Valid: true}
+		security = sql.NullInt64{Int64: int64(u.Security), Valid: true}
+		counted = sql.NullInt64{Int64: u.Counted.Unix(), Valid: true}
+	}
 	// INSERT OR REPLACE keeps redelivery idempotent: an agent whose POST
 	// succeeded but whose reply was lost sends the same report again.
 	if _, err := tx.ExecContext(ctx, `
@@ -98,8 +106,9 @@ func insertReport(ctx context.Context, tx *sql.Tx, hostID int64, r report.Report
 			uptime_s,
 			procs, procs_running, procs_sleeping, procs_stopped,
 			procs_zombie, procs_threads, procs_kernel,
-			container_runtime, containers_disabled, absent
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			container_runtime, containers_disabled, absent,
+			reboot_required, updates_upgradable, updates_security, updates_counted
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		hostID, TierRaw, start, stop, receivedAt, r.Samples, r.Schema,
 		r.CPU.Min, r.CPU.Max, r.CPU.Mean,
 		r.Load1.Min, r.Load1.Max, r.Load1.Mean,
@@ -110,7 +119,8 @@ func insertReport(ctx context.Context, tx *sql.Tx, hostID int64, r report.Report
 		r.Host.UptimeSeconds,
 		r.Procs.Total, r.Procs.Running, r.Procs.Sleeping, r.Procs.Stopped,
 		r.Procs.Zombie, r.Procs.Threads, r.Procs.Kernel,
-		r.ContainerRuntime, r.ContainersDisabled, strings.Join(r.Absent, ",")); err != nil {
+		r.ContainerRuntime, r.ContainersDisabled, strings.Join(r.Absent, ","),
+		r.Host.RebootRequired, upgradable, security, counted); err != nil {
 		return err
 	}
 

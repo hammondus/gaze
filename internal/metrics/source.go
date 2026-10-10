@@ -23,6 +23,9 @@ type Source struct {
 	// A nil Run means the caller has nothing to offer there, and the marker
 	// reads as absent rather than as an error.
 	Run fs.FS
+	// State is /var/lib/gaze, read only for the counts the apt hook writes.
+	// Nil is tolerated the same way as Run: no count, not an error.
+	State fs.FS
 }
 
 // open returns a reader for a path relative to the given filesystem. Callers

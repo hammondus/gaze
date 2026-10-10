@@ -4,7 +4,13 @@
     "hostname": "web-01",
     "kernel": "6.8.0-45-generic",
     "cpus": 4,
-    "uptime_s": 7862450
+    "uptime_s": 7862450,
+    "reboot_required": true,
+    "updates": {
+      "upgradable": 12,
+      "security": 3,
+      "counted": "2026-08-25T06:25:00Z"
+    }
   },
   "start": "2026-08-25T12:00:00Z",
   "end": "2026-08-25T12:00:50Z",

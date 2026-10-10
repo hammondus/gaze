@@ -18,9 +18,10 @@ import (
 // for real, and reports what it cannot supply through Snapshot.Absent.
 func NewSource() Source {
 	return Source{
-		Proc: unsupportedFS{},
-		Sys:  unsupportedFS{},
-		Run:  unsupportedFS{},
+		Proc:  unsupportedFS{},
+		Sys:   unsupportedFS{},
+		Run:   unsupportedFS{},
+		State: unsupportedFS{},
 	}
 }
 

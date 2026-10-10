@@ -24,10 +24,15 @@ func demoSamples() []metrics.Snapshot {
 			Taken:    base.Add(time.Duration(i) * 10 * time.Second),
 			Interval: 10 * time.Second,
 			Host: metrics.Host{
-				Hostname: "web-01",
-				Kernel:   "6.8.0-45-generic",
-				CPUCount: 4,
-				Uptime:   91*24*time.Hour + time.Duration(i)*10*time.Second,
+				Hostname:       "web-01",
+				Kernel:         "6.8.0-45-generic",
+				CPUCount:       4,
+				Uptime:         91*24*time.Hour + time.Duration(i)*10*time.Second,
+				RebootRequired: true,
+				Updates: &metrics.Updates{
+					Upgradable: 12, Security: 3,
+					Counted: time.Date(2026, 8, 25, 6, 25, 0, 0, time.UTC),
+				},
 			},
 			CPU: metrics.CPU{Busy: busy[i]},
 			Load: metrics.Load{
