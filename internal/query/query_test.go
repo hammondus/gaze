@@ -229,6 +229,17 @@ func TestSeries(t *testing.T) {
 		t.Errorf("sda read = %+v", disks[0].Points[0].Read)
 	}
 
+	mounts, err := q.Mounts(ctx, id, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mounts) != 1 || mounts[0].Path != "/" || len(mounts[0].Points) != 3 {
+		t.Fatalf("mounts = %+v", mounts)
+	}
+	if p := mounts[0].Points[0]; p.Percent != 50 || p.Used != 5 || p.Total != 10 || p.Samples != 6 {
+		t.Errorf("/ point = %+v", p)
+	}
+
 	points, err := q.Scalars(ctx, id, from, to)
 	if err != nil {
 		t.Fatal(err)

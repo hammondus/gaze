@@ -235,8 +235,12 @@ type hostView struct {
 	Update    updateView
 
 	Graphs []graph // cpu, load, memory, swap
-	Nets   []graph // one per interface
-	Disks  []graph // one per device
+	// Filesystems is one graph per mount: percent used over the range.
+	// Not Mounts, which the embedded Overview already uses for the
+	// latest report's rows.
+	Filesystems []graph
+	Nets        []graph // one per interface
+	Disks       []graph // one per device
 
 	// The virtual devices are off the page unless ShowVirtual is set: a
 	// container host has one veth and one loop device per container, and
@@ -360,6 +364,16 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Graphs = scalarGraphs(points, from, to)
 
+	mounts, err := s.q.Mounts(r.Context(), id, from, to)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	for _, m := range mounts {
+		v.Filesystems = append(v.Filesystems, buildGraph("fs "+captioned(v.Labels, store.LabelMount, m.Path)+" — % used",
+			from, to, 100, fmtYPercent, true, series{class: "a", points: mountPoints(m.Points)}))
+	}
+
 	nets, err := s.q.Nets(r.Context(), id, from, to)
 	if err != nil {
 		s.fail(w, r, err)
@@ -451,6 +465,18 @@ func netPoints(ps []query.NetPoint, tx bool) []gpoint {
 			st = p.Tx
 		}
 		out = append(out, gpoint{t: p.Start, min: st.Min, max: st.Max, mean: st.Mean, weight: 1})
+	}
+	return out
+}
+
+// mountPoints turns a filesystem's readings into graph points. Each
+// reading is one level, so min, max, and mean coincide; the thinning
+// pass then keeps the peak of every bucket it merges, which is what a
+// capacity graph must never lose.
+func mountPoints(ps []query.MountPoint) []gpoint {
+	out := make([]gpoint, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, gpoint{t: p.Start, min: p.Percent, max: p.Percent, mean: p.Percent, weight: p.Samples})
 	}
 	return out
 }

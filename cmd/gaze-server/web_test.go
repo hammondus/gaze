@@ -923,6 +923,8 @@ func TestLabels(t *testing.T) {
 		`Backups <span class="dim">/opt/FileMaker/Backups</span>`,
 		`net LAN (eth0) — rx / tx`,
 		`disk System SSD (sda) — read / write`,
+		`fs Backups (/opt/FileMaker/Backups) — % used`,
+		`fs / — % used`,
 		`value="Backups"`,
 	} {
 		if !strings.Contains(body, want) {

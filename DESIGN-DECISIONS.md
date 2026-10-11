@@ -1350,6 +1350,13 @@ The rules the builder enforces, in test rather than by eye:
   the way the roll-up does (min of mins, max of maxes, sample-weighted
   mean). The range picks the tier through the query package's retention
   logic; thinning is presentation and stays in the web layer.
+- **A filesystem graph is a level, and thinning keeps its peak.** Percent
+  used per mount comes from the same `mount_reports` rows the tables
+  read; nothing new is collected. Each reading is one level, so it enters
+  the builder with min, max, and mean equal, and the bucket merge keeps
+  the max. That matches the roll-up, which stores the window peak for
+  mounts, and it is the only aggregate a capacity question accepts: a
+  mean that hides the moment a disk filled is worse than no graph.
 - **"No swap" and "swap absent" draw differently.** A machine with no swap
   configured gets a note saying so; a platform that cannot report swap gets
   gaps. Same rule as everywhere: switched off, not present, and not

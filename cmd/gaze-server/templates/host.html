@@ -43,6 +43,7 @@
 
 <div class="graphs">
   {{range .Graphs}}{{template "graph" .}}{{end}}
+  {{range .Filesystems}}{{template "graph" .}}{{end}}
   {{range .Nets}}{{template "graph" .}}{{end}}
   {{range .Disks}}{{template "graph" .}}{{end}}
 </div>

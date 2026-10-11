@@ -374,6 +374,55 @@ func (q *Q) Disks(ctx context.Context, hostID int64, from, to time.Time) ([]Disk
 	return out, rows.Err()
 }
 
+// MountSeries is one filesystem's usage over a range.
+type MountSeries struct {
+	Path   string
+	Points []MountPoint
+}
+
+// MountPoint is one observation of a filesystem: the last reading at the
+// raw tier, the window peak in a roll-up. One value, not a Stat, because
+// capacity is a level, not a rate: the question is how full it got.
+type MountPoint struct {
+	Start   time.Time
+	Samples int
+	Percent float64
+	Used    uint64
+	Total   uint64
+}
+
+// Mounts returns a host's per-filesystem usage over [from, to),
+// path-ordered, at the same tier Scalars reads.
+func (q *Q) Mounts(ctx context.Context, hostID int64, from, to time.Time) ([]MountSeries, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT path, start, samples, percent, used, total
+		FROM mount_reports
+		WHERE host_id = ? AND tier = ? AND start >= ? AND start < ?
+		ORDER BY path, start`,
+		hostID, tierFor(from), from.Unix(), to.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []MountSeries
+	for rows.Next() {
+		var path string
+		var start int64
+		var p MountPoint
+		if err := rows.Scan(&path, &start, &p.Samples, &p.Percent, &p.Used, &p.Total); err != nil {
+			return nil, err
+		}
+		p.Start = time.Unix(start, 0)
+		if len(out) == 0 || out[len(out)-1].Path != path {
+			out = append(out, MountSeries{Path: path})
+		}
+		last := &out[len(out)-1]
+		last.Points = append(last.Points, p)
+	}
+	return out, rows.Err()
+}
+
 // tierFor picks the finest tier whose retention reaches back to from.
 func tierFor(from time.Time) int {
 	age := time.Since(from)

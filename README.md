@@ -338,8 +338,9 @@ roll-ups for 90 days, hourly for 2 years, each keeping minimum and maximum
 beside the mean so spikes survive aggregation. It serves a web front end
 over them: a host list that tells a reporting host from a stale one from
 one that has never reported, and per-host graphs — server-rendered SVG, no
-JavaScript — with tables for filesystems, containers, and the busiest
-processes. The host page hides the virtual devices as the dashboard does, and
+JavaScript — cpu, load, memory, swap, percent used per filesystem, and
+rates per interface and block device — with tables for filesystems,
+containers, and the busiest processes. The host page hides the virtual devices as the dashboard does, and
 says how many; the link that shows them keeps the time range you were on.
 The host list reloads itself every minute and prints the time it was read;
 to see new data on a host page, reload the page.
