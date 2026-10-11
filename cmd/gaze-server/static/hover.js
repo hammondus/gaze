@@ -10,8 +10,8 @@
 
 (function () {
   var NS = "http://www.w3.org/2000/svg";
-  var PAD = 4;       // text inset inside the box, viewBox units
-  var LINE = 11;     // line height for 9px text
+  var PAD = 6;       // text inset inside the box, viewBox units
+  var LINE = 22;     // line height for 18px text
   var WIDTH = 600;   // matches gWidth in graph.go
 
   function el(name, cls) {
@@ -68,14 +68,16 @@
         text.appendChild(span);
       }
       var box = text.getBBox();
-      // Readout to the right of the cursor, flipped left near the edge.
-      var right = x + 6 + box.width + 2 * PAD <= WIDTH - 2;
-      var x0 = right ? x + 6 : x - 6 - box.width - 2 * PAD;
+      // Readout to the right of the cursor, flipped left near the edge,
+      // and held inside the graph when a long line fits neither side.
+      var w = box.width + 2 * PAD;
+      var x0 = x + 6 + w <= WIDTH - 2 ? x + 6 : x - 6 - w;
+      x0 = Math.max(2, Math.min(x0, WIDTH - 2 - w));
       var y0 = 4;
-      text.setAttribute("transform", "translate(" + (x0 + PAD) + "," + (y0 + PAD + 8) + ")");
+      text.setAttribute("transform", "translate(" + (x0 + PAD) + "," + (y0 + PAD + 16) + ")");
       bg.setAttribute("x", x0);
       bg.setAttribute("y", y0);
-      bg.setAttribute("width", box.width + 2 * PAD);
+      bg.setAttribute("width", w);
       bg.setAttribute("height", box.height + 2 * PAD);
     }
 

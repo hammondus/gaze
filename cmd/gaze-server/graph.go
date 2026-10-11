@@ -217,7 +217,8 @@ func readoutTime(p gpoint) string {
 
 // readoutValue is one series' line: the mean, with the min and max after
 // it when they differ, so a raw point reads as one number and a rolled-up
-// bucket shows its spread.
+// bucket shows its spread. Differ as labels, not as floats: a spread the
+// axis format cannot show would read as "67% (67% to 67%)".
 func readoutValue(name string, p gpoint, fmtY func(float64) string) string {
 	var b strings.Builder
 	if name != "" {
@@ -228,8 +229,8 @@ func readoutValue(name string, p gpoint, fmtY func(float64) string) string {
 		return b.String()
 	}
 	b.WriteString(fmtY(p.mean))
-	if p.min != p.max {
-		fmt.Fprintf(&b, " (%s to %s)", fmtY(p.min), fmtY(p.max))
+	if lo, hi := fmtY(p.min), fmtY(p.max); lo != hi {
+		fmt.Fprintf(&b, " (%s to %s)", lo, hi)
 	}
 	if p.note != "" {
 		b.WriteString(" · " + p.note)

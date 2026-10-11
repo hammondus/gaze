@@ -158,6 +158,7 @@ func TestHoverReadout(t *testing.T) {
 	rx[1].skip, tx[1].skip = true, true
 	rx[2].min, rx[2].max, rx[2].weight = 5, 40, 12
 	rx[3].min, rx[3].max, rx[3].weight = 20, 20, 1
+	tx[2].min, tx[2].max = 19.8, 20.3 // a spread the % format cannot show
 	tx[3].note = "spare"
 
 	g := buildGraph("net", t0, t0.Add(4*time.Minute), 0, fmtYPercent, false,
@@ -185,7 +186,7 @@ func TestHoverReadout(t *testing.T) {
 	for i, want := range [][]string{
 		{t0.Local().Format("2006-01-02 15:04") + " · 6 samples", "rx 20% (10% to 30%)", "tx 20% (10% to 30%)"},
 		{t0.Add(time.Minute).Local().Format("2006-01-02 15:04"), "rx no data", "tx no data"},
-		{t0.Add(2*time.Minute).Local().Format("2006-01-02 15:04") + " · 12 samples", "rx 20% (5% to 40%)", "tx 20% (10% to 30%)"},
+		{t0.Add(2*time.Minute).Local().Format("2006-01-02 15:04") + " · 12 samples", "rx 20% (5% to 40%)", "tx 20%"},
 		{t0.Add(3*time.Minute).Local().Format("2006-01-02 15:04") + " · 1 sample", "rx 20%", "tx 20% (10% to 30%) · spare"},
 	} {
 		if !slices.Equal(hs[i].Lines, want) {

@@ -176,7 +176,7 @@ tr.stale td:first-child a { color: var(--warn); }
 /* The hover readout hover.js draws: a crosshair and a boxed text block. */
 .graph .cursor { stroke: var(--dim); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .graph .readout-bg { fill: var(--panel); stroke: var(--line); opacity: 0.95; }
-.graph .readout { fill: var(--fg); font-size: 9px; }
+.graph .readout { fill: var(--fg); font-size: 18px; }
 .graph .readout tspan:first-child { fill: var(--dim); }
 
 /* Filesystem usage bars */
