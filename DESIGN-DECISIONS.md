@@ -1313,14 +1313,37 @@ The lockout counter is likewise one column, shared between password and
 TOTP failures. There is one account; either factor failing repeatedly
 means the same thing, and two counters would just be two ways to spell it.
 
-## Graphs are server-rendered SVG, and gaps are the point
+## Graphs are server-rendered SVG, and the hover readout is the one script
 
 The host page's graphs are inline SVG computed in Go — scales, ticks, and
-path data — and stamped by the template. The page ships no JavaScript at
-all. What a client-side chart would buy — hover readouts, live refresh —
-is not worth a JSON API surface plus client code to audit, for a page whose
-job is a glance. If that judgement changes, the graph builder already
-produces the series; only the last step moves.
+path data — and stamped by the template. A client-side chart library
+would buy live refresh and a smoother hover at the cost of a dependency to
+audit and a JSON API to secure, and the page's job is a glance; the
+numbers are testable without a browser this way.
+
+The one thing a server-rendered graph cannot do is tell you the number
+under the pointer, and that is worth a script. The first version shipped
+with none, on the judgement that a glance did not need it; it did, the
+moment capacity graphs arrived and the question became "how full was it
+on Tuesday". So the page carries one script, `static/hover.js`, and the
+rules keep it from growing into the thing that was declined:
+
+- **The data rides in the page, not behind an API.** Each graph's thinned
+  buckets are already in Go; the builder formats the readout lines and
+  puts them in a `data-hover` attribute on the SVG. No JSON route, no
+  second request, no new authenticated surface, and the range and tier
+  logic stays in one place. The script finds the nearest entry and draws
+  it; it computes nothing, so the readout and the axis use the same
+  formatters.
+- **Plain DOM, no dependencies, no bundler.** Under a hundred lines, served
+  by the static handler with the same content-hash cache key as the
+  stylesheet, readable in one sitting.
+- **The CSP gains `script-src 'self'` and nothing else.** Inline scripts
+  and event handlers stay blocked, so a host-reported string that reaches
+  a page still cannot run. That property is the point of the policy, and
+  a test asserts `unsafe-inline` is absent.
+- **The page works without it.** The SVG renders server-side as before. A
+  blocked or failed script costs the readout and nothing else.
 
 The host list is the one page that reloads itself, through
 `<meta http-equiv="refresh" content="60">`, still with no JavaScript. It
@@ -1363,7 +1386,8 @@ The rules the builder enforces, in test rather than by eye:
   supported are different facts.
 
 Every colour lives in the one stylesheet — the SVG carries classes, not
-inline styles, which also keeps the CSP free of `unsafe-inline`.
+inline styles, and the readout the script draws does the same — which is
+what keeps the CSP free of `unsafe-inline` for styles as well as scripts.
 
 ## Web sessions are cookies with the screws in
 

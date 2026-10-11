@@ -173,6 +173,11 @@ tr.stale td:first-child a { color: var(--warn); }
 .graph .line.b { stroke: var(--accent-b); }
 .graph .dot.a { fill: var(--accent); }
 .graph .dot.b { fill: var(--accent-b); }
+/* The hover readout hover.js draws: a crosshair and a boxed text block. */
+.graph .cursor { stroke: var(--dim); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.graph .readout-bg { fill: var(--panel); stroke: var(--line); opacity: 0.95; }
+.graph .readout { fill: var(--fg); font-size: 9px; }
+.graph .readout tspan:first-child { fill: var(--dim); }
 
 /* Filesystem usage bars */
 .bar-col { width: 7rem; }

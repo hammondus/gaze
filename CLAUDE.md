@@ -53,7 +53,8 @@ snapshots to what goes over the wire.
   one. The loop, ring buffer, and HTTP client live in `package main`; nothing
   else consumes them. Test with `go test ./cmd/gaze-agent`.
 - `cmd/gaze-server` — ingest endpoint, roll-up sweep, the web front end
-  (login, setup, host pages, server-rendered SVG graphs — no JavaScript),
+  (login, setup, host pages, server-rendered SVG graphs with one
+  dependency-free script for the hover readout),
   the SSH TUI (`-ssh-addr`, off by default: pubkey-only auth against an
   authorized_keys file, the fleet list, and the same `ui.Model` the local
   binary renders, fed by `query.LatestSnapshot`), and the `enroll` and

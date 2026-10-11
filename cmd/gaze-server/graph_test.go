@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -141,6 +143,61 @@ func TestGraphStaysInsideTheViewBox(t *testing.T) {
 				t.Fatalf("y = %v outside plot", y)
 			}
 		}
+	}
+}
+
+// TestHoverReadout: the readout carries one entry per thinned point, each
+// inside the plot, with the lines a reader needs — time and samples, then
+// one line per series that reads as a single number for a raw point and
+// shows its spread for a merged one.
+func TestHoverReadout(t *testing.T) {
+	// minutely points carry a 10 to 30 spread over 6 samples: a rolled-up
+	// bucket. Point 3 on rx is flattened to a single raw reading.
+	rx := minutely(4)
+	tx := minutely(4)
+	rx[1].skip, tx[1].skip = true, true
+	rx[2].min, rx[2].max, rx[2].weight = 5, 40, 12
+	rx[3].min, rx[3].max, rx[3].weight = 20, 20, 1
+	tx[3].note = "spare"
+
+	g := buildGraph("net", t0, t0.Add(4*time.Minute), 0, fmtYPercent, false,
+		series{class: "a", name: "rx", points: rx},
+		series{class: "b", name: "tx", points: tx})
+
+	// Each entry is [x, line, line, ...]: see hpoint.MarshalJSON.
+	var raw [][]any
+	if err := json.Unmarshal([]byte(g.Hover), &raw); err != nil {
+		t.Fatalf("hover is not JSON: %v\n%s", err, g.Hover)
+	}
+	if len(raw) != 4 {
+		t.Fatalf("%d hover entries, want 4", len(raw))
+	}
+	hs := make([]hpoint, len(raw))
+	for i, r := range raw {
+		hs[i].X = r[0].(float64)
+		for _, l := range r[1:] {
+			hs[i].Lines = append(hs[i].Lines, l.(string))
+		}
+		if hs[i].X < gPadL-0.01 || hs[i].X > gWidth-gPadR+0.01 {
+			t.Errorf("hover x = %v outside plot", hs[i].X)
+		}
+	}
+	for i, want := range [][]string{
+		{t0.Local().Format("2006-01-02 15:04") + " · 6 samples", "rx 20% (10% to 30%)", "tx 20% (10% to 30%)"},
+		{t0.Add(time.Minute).Local().Format("2006-01-02 15:04"), "rx no data", "tx no data"},
+		{t0.Add(2*time.Minute).Local().Format("2006-01-02 15:04") + " · 12 samples", "rx 20% (5% to 40%)", "tx 20% (10% to 30%)"},
+		{t0.Add(3*time.Minute).Local().Format("2006-01-02 15:04") + " · 1 sample", "rx 20%", "tx 20% (10% to 30%) · spare"},
+	} {
+		if !slices.Equal(hs[i].Lines, want) {
+			t.Errorf("entry %d lines = %q, want %q", i, hs[i].Lines, want)
+		}
+	}
+
+	// A graph with nothing to draw has nothing to read out.
+	none := buildGraph("empty", t0, t0.Add(time.Minute), 0, fmtYPercent, false,
+		series{class: "a", points: []gpoint{{t: t0, skip: true}}})
+	if none.Hover != "" {
+		t.Errorf("empty graph carries a readout: %s", none.Hover)
 	}
 }
 

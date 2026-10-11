@@ -325,7 +325,7 @@ func (s *webServer) render(w http.ResponseWriter, r *http.Request, name string, 
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		"default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 
 	// Every page depends on the session cookie. Without this, a cache keys
 	// only on the URL and may hand one session's page to another.

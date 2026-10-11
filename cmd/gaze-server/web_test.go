@@ -543,8 +543,8 @@ func TestCacheAndSecurityHeaders(t *testing.T) {
 	if got := h.Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("login Cache-Control = %q, want no-cache", got)
 	}
-	if h.Get("Content-Security-Policy") == "" {
-		t.Error("no CSP header")
+	if csp := h.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe-inline") {
+		t.Errorf("CSP = %q: want script-src 'self' and no unsafe-inline", csp)
 	}
 	if got := h.Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q", got)
@@ -566,6 +566,10 @@ func TestCacheAndSecurityHeaders(t *testing.T) {
 	resp, _ = w.get("/static/style.css")
 	if got := resp.Header.Get("Cache-Control"); strings.Contains(got, "immutable") {
 		t.Errorf("unhashed asset Cache-Control = %q, must not be immutable", got)
+	}
+	resp, body := w.get("/static/hover.js?v=" + w.web.assetVer)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "data-hover") {
+		t.Errorf("hover.js: status %d", resp.StatusCode)
 	}
 }
 
@@ -925,6 +929,9 @@ func TestLabels(t *testing.T) {
 		`disk System SSD (sda) — read / write`,
 		`fs Backups (/opt/FileMaker/Backups) — % used`,
 		`fs / — % used`,
+		`data-hover="[[`,
+		`rx 0 B/s`,
+		`69% · 69.0 GiB of 100.0 GiB`,
 		`value="Backups"`,
 	} {
 		if !strings.Contains(body, want) {

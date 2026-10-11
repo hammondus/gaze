@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -10,8 +11,9 @@ import (
 
 // Server-side SVG graphs. Go computes the geometry — scales, tick
 // positions, path data — and the template stamps it into <svg> elements, so
-// the page ships no JavaScript and the numbers are testable without a
-// browser.
+// the numbers are testable without a browser. The one script on the page,
+// static/hover.js, reads the readout each graph carries in a data
+// attribute and draws a crosshair; it computes nothing.
 //
 // Gaps are the design centre: a host that stopped reporting must show a
 // hole, and an absent field must show nothing at all. A line is therefore a
@@ -38,14 +40,36 @@ const maxGraphPoints = 400
 type gpoint struct {
 	t              time.Time
 	min, max, mean float64
-	weight         int  // samples behind the observation, for thinning
-	skip           bool // the platform could not supply this point
+	weight         int    // samples behind the observation, for thinning
+	skip           bool   // the platform could not supply this point
+	note           string // extra readout text, such as "69.2 of 100.0 GiB"
 }
 
 // series is one line on a graph.
 type series struct {
 	class  string // CSS class of the line
+	name   string // readout prefix, such as "rx"; empty for a lone series
 	points []gpoint
+}
+
+// hpoint is one entry of a graph's hover readout: where the crosshair
+// goes, and the lines the readout shows there.
+type hpoint struct {
+	X     float64
+	Lines []string
+}
+
+// MarshalJSON writes an hpoint as a flat array, [x, line, line, ...],
+// with x to one decimal. A graph carries a few hundred of these in an
+// attribute, where every quote costs five bytes once escaped, so the
+// keys and nesting an object would add are not worth having.
+func (h hpoint) MarshalJSON() ([]byte, error) {
+	flat := make([]any, 0, 1+len(h.Lines))
+	flat = append(flat, math.Round(h.X*10)/10)
+	for _, l := range h.Lines {
+		flat = append(flat, l)
+	}
+	return json.Marshal(flat)
 }
 
 // graph is what the template draws.
@@ -57,6 +81,9 @@ type graph struct {
 	Dots   []gdot // isolated points no segment can carry
 	XTicks []tick
 	YTicks []tick
+	// Hover is the readout as JSON, a list of hpoint, carried in a data
+	// attribute for static/hover.js. Empty when there is nothing to show.
+	Hover string
 }
 
 type gline struct {
@@ -149,7 +176,76 @@ func buildGraph(title string, from, to time.Time, yMax float64, fmtY func(float6
 		g.YTicks = append(g.YTicks, tick{Y: y(top * frac), Label: fmtY(top * frac)})
 	}
 	g.XTicks = xTicks(from, to, x)
+	g.Hover = hoverJSON(hover(ss, fmtY, x))
 	return g
+}
+
+// hover builds the readout from the thinned series. Every series on a
+// graph comes from the same rows, so the first series' points set the
+// positions and the others are matched by index when their times agree.
+func hover(ss []series, fmtY func(float64) string, x func(time.Time) float64) []hpoint {
+	if len(ss) == 0 {
+		return nil
+	}
+	out := make([]hpoint, 0, len(ss[0].points))
+	for i, p := range ss[0].points {
+		h := hpoint{X: x(p.t), Lines: []string{readoutTime(p)}}
+		for _, s := range ss {
+			if i >= len(s.points) || !s.points[i].t.Equal(p.t) {
+				continue
+			}
+			h.Lines = append(h.Lines, readoutValue(s.name, s.points[i], fmtY))
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// readoutTime is the first line of a readout: when the bucket starts, in
+// the server's zone, and how many samples stand behind it.
+func readoutTime(p gpoint) string {
+	t := p.t.Local().Format("2006-01-02 15:04")
+	switch {
+	case p.skip:
+		return t
+	case p.weight == 1:
+		return t + " · 1 sample"
+	default:
+		return fmt.Sprintf("%s · %d samples", t, p.weight)
+	}
+}
+
+// readoutValue is one series' line: the mean, with the min and max after
+// it when they differ, so a raw point reads as one number and a rolled-up
+// bucket shows its spread.
+func readoutValue(name string, p gpoint, fmtY func(float64) string) string {
+	var b strings.Builder
+	if name != "" {
+		b.WriteString(name + " ")
+	}
+	if p.skip {
+		b.WriteString("no data")
+		return b.String()
+	}
+	b.WriteString(fmtY(p.mean))
+	if p.min != p.max {
+		fmt.Fprintf(&b, " (%s to %s)", fmtY(p.min), fmtY(p.max))
+	}
+	if p.note != "" {
+		b.WriteString(" · " + p.note)
+	}
+	return b.String()
+}
+
+// hoverJSON encodes the readout for the data attribute. Marshalling a
+// slice of plain strings and floats cannot fail, so the error is dropped
+// rather than threaded through every graph.
+func hoverJSON(hs []hpoint) string {
+	if len(hs) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(hs)
+	return string(b)
 }
 
 // segments splits points into runs the line may connect. A break is a
@@ -232,6 +328,9 @@ func thin(points []gpoint, target int) []gpoint {
 			w := max(p.weight, 1)
 			m.skip = false
 			m.min = min(m.min, p.min)
+			if p.max >= m.max || m.note == "" {
+				m.note = p.note // the peak's note, for a capacity readout
+			}
 			m.max = max(m.max, p.max)
 			sum += p.mean * float64(w)
 			m.weight += w

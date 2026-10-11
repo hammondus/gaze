@@ -388,8 +388,8 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		v.Labelled = append(v.Labelled, labelRow{Kind: store.LabelNet, What: "interface", Name: n.Name,
 			Label: v.Labels[query.LabelKey{Kind: store.LabelNet, Name: n.Name}]})
 		v.Nets = append(v.Nets, buildGraph("net "+captioned(v.Labels, store.LabelNet, n.Name)+" — rx / tx", from, to, 0, fmtYRate, false,
-			series{class: "a", points: netPoints(n.Points, false)},
-			series{class: "b", points: netPoints(n.Points, true)}))
+			series{class: "a", name: "rx", points: netPoints(n.Points, false)},
+			series{class: "b", name: "tx", points: netPoints(n.Points, true)}))
 	}
 
 	disks, err := s.q.Disks(r.Context(), id, from, to)
@@ -405,8 +405,8 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		v.Labelled = append(v.Labelled, labelRow{Kind: store.LabelDisk, What: "disk", Name: d.Name,
 			Label: v.Labels[query.LabelKey{Kind: store.LabelDisk, Name: d.Name}]})
 		v.Disks = append(v.Disks, buildGraph("disk "+captioned(v.Labels, store.LabelDisk, d.Name)+" — read / write", from, to, 0, fmtYRate, false,
-			series{class: "a", points: diskPoints(d.Points, false)},
-			series{class: "b", points: diskPoints(d.Points, true)}))
+			series{class: "a", name: "read", points: diskPoints(d.Points, false)},
+			series{class: "b", name: "write", points: diskPoints(d.Points, true)}))
 	}
 	v.DeviceLabel, v.DeviceHref = deviceToggle(id, v.Range, v.ShowVirtual, hidden)
 
@@ -476,7 +476,8 @@ func netPoints(ps []query.NetPoint, tx bool) []gpoint {
 func mountPoints(ps []query.MountPoint) []gpoint {
 	out := make([]gpoint, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, gpoint{t: p.Start, min: p.Percent, max: p.Percent, mean: p.Percent, weight: p.Samples})
+		out = append(out, gpoint{t: p.Start, min: p.Percent, max: p.Percent, mean: p.Percent, weight: p.Samples,
+			note: fmtBytes(p.Used) + " of " + fmtBytes(p.Total)})
 	}
 	return out
 }

@@ -3,7 +3,7 @@
   <figcaption>{{.Title}}</figcaption>
   {{/* The literal coordinates match the gWidth/gHeight/gPad* constants in
        graph.go; change them together. */}}
-  <svg viewBox="0 0 600 150" role="img">
+  <svg viewBox="0 0 600 150" role="img"{{if .Hover}} data-hover="{{.Hover}}"{{end}}>
     {{if .Note}}
     <text class="note" x="300" y="80" text-anchor="middle">{{.Note}}</text>
     {{else}}

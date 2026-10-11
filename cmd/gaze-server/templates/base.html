@@ -6,6 +6,7 @@
 <title>{{.Title}} · gaze</title>
 {{if .Refresh}}{{if .RefreshTo}}<meta http-equiv="refresh" content="{{.Refresh}}; url={{.RefreshTo}}">{{else}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}{{end}}
 <link rel="stylesheet" href="/static/style.css?v={{.Asset}}">
+<script src="/static/hover.js?v={{.Asset}}" defer></script>
 </head>
 <body>
 <header>
