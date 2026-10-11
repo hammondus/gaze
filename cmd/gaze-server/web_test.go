@@ -447,7 +447,7 @@ func TestFleetCapacityAndPatching(t *testing.T) {
 	}
 	for _, c := range []struct{ host, want, why string }{
 		{"full-01", `<span class="warn">85%</span>`, "memory over the warning point is not amber"},
-		{"full-01", `<span class="bad">93%</span> <span class="dim">/var</span>`, "the fullest disk is not shown red"},
+		{"full-01", `<span class="bad">93%</span> <span class="dim mount">/var</span>`, "the fullest disk is not shown red"},
 		{"full-01", `>restart</span>`, "a pending restart is not flagged"},
 		{"full-01", `3d 4h`, "uptime is missing"},
 		{"full-01", `12 · <span class="warn">3 security</span>`, "the update count is missing"},

@@ -21,7 +21,7 @@
       <td>{{uptime .Uptime}}{{if .RebootRequired}} <span class="chip warn" title="The distribution says an installed upgrade takes effect only after a restart.">restart</span>{{end}}</td>
       <td class="num">{{percent .CPU}}</td>
       <td class="num"><span class="{{.MemClass}}">{{percent .MemPct}}</span> <span class="dim">of {{bytes .MemTotal}}</span></td>
-      <td class="num"{{if .DiskTitle}} title="{{.DiskTitle}}"{{end}}>{{if .DiskPath}}<span class="{{.DiskClass}}">{{percent .DiskPct}}</span> <span class="dim">{{.DiskPath}}</span>{{else}}—{{end}}</td>
+      <td class="num"{{if .DiskTitle}} title="{{.DiskTitle}}"{{end}}>{{if .DiskPath}}<span class="{{.DiskClass}}">{{percent .DiskPct}}</span> <span class="dim mount">{{.DiskPath}}</span>{{else}}—{{end}}</td>
       <td>{{with .Updates}}
         {{- if .Upgradable}}{{.Upgradable}}{{if .Security}} · <span class="warn">{{.Security}} security</span>{{end}}{{else}}<span class="dim">none</span>{{end}}
         {{- if $row.UpdatesOld}} <span class="warn" title="The count is only as fresh as the last apt update.">counted {{ago .Counted}}</span>{{end}}

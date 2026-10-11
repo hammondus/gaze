@@ -110,6 +110,18 @@ th { color: var(--dim); font-weight: 500; font-size: 0.85rem; }
 td a { text-decoration: none; }
 .cmd { font-family: ui-monospace, monospace; font-size: 0.85rem; }
 
+/* Fleet cells never wrap: a long mount path would otherwise take the width
+   from the host name. The path is the one thing that gives way, truncated
+   with an ellipsis; the cell's title lists every mount in full. */
+.fleet th, .fleet td { white-space: nowrap; }
+.fleet .mount {
+  display: inline-block;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 /* The three host states. Never-reported and stale rows dim their figures;
    the chip is the label that makes each state unmistakable. */
 .chip {
