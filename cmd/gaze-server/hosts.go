@@ -127,7 +127,7 @@ func (s *webServer) handleFleet(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(o.Mounts) > 0 {
 			// Fleet sorts mounts fullest first.
-			row.DiskPath, row.DiskPct = o.Mounts[0].Path, o.Mounts[0].Percent
+			row.DiskPath, row.DiskPct = o.Labels.Of(store.LabelMount, o.Mounts[0].Path), o.Mounts[0].Percent
 			row.DiskClass = levelClass(threshold.Disk.Of(row.DiskPct))
 			lines := make([]string, len(o.Mounts))
 			for i, m := range o.Mounts {
@@ -246,6 +246,29 @@ type hostView struct {
 	ShowVirtual bool
 	DeviceLabel string
 	DeviceHref  string
+
+	// Labelled is every mount, interface, and block device the page shows,
+	// with its current label if any: the rows of the labels form.
+	Labelled []labelRow
+}
+
+// labelRow is one line of the labels form.
+type labelRow struct {
+	Kind  string // store.LabelMount, LabelNet, or LabelDisk: the field name
+	What  string // the word the page uses: mount, interface, disk
+	Name  string // as reported
+	Label string // current label, empty for none
+}
+
+// captioned names a thing for a graph caption: the label with the
+// reported name after it, or the reported name alone. The reported name
+// stays in view because the graph is where someone goes to work out which
+// device is busy.
+func captioned(labels query.Labels, kind, name string) string {
+	if labels.Has(kind, name) {
+		return labels.Of(kind, name) + " (" + name + ")"
+	}
+	return name
 }
 
 func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
@@ -323,6 +346,13 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 		v.Latest = latest
 	}
 
+	if v.Latest != nil {
+		for _, m := range v.Latest.Mounts {
+			v.Labelled = append(v.Labelled, labelRow{Kind: store.LabelMount, What: "mount", Name: m.Path,
+				Label: v.Labels[query.LabelKey{Kind: store.LabelMount, Name: m.Path}]})
+		}
+	}
+
 	points, err := s.q.Scalars(r.Context(), id, from, to)
 	if err != nil {
 		s.fail(w, r, err)
@@ -341,7 +371,9 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 			hidden++
 			continue
 		}
-		v.Nets = append(v.Nets, buildGraph("net "+n.Name+" — rx / tx", from, to, 0, fmtYRate, false,
+		v.Labelled = append(v.Labelled, labelRow{Kind: store.LabelNet, What: "interface", Name: n.Name,
+			Label: v.Labels[query.LabelKey{Kind: store.LabelNet, Name: n.Name}]})
+		v.Nets = append(v.Nets, buildGraph("net "+captioned(v.Labels, store.LabelNet, n.Name)+" — rx / tx", from, to, 0, fmtYRate, false,
 			series{class: "a", points: netPoints(n.Points, false)},
 			series{class: "b", points: netPoints(n.Points, true)}))
 	}
@@ -356,7 +388,9 @@ func (s *webServer) handleHost(w http.ResponseWriter, r *http.Request) {
 			hidden++
 			continue
 		}
-		v.Disks = append(v.Disks, buildGraph("disk "+d.Name+" — read / write", from, to, 0, fmtYRate, false,
+		v.Labelled = append(v.Labelled, labelRow{Kind: store.LabelDisk, What: "disk", Name: d.Name,
+			Label: v.Labels[query.LabelKey{Kind: store.LabelDisk, Name: d.Name}]})
+		v.Disks = append(v.Disks, buildGraph("disk "+captioned(v.Labels, store.LabelDisk, d.Name)+" — read / write", from, to, 0, fmtYRate, false,
 			series{class: "a", points: diskPoints(d.Points, false)},
 			series{class: "b", points: diskPoints(d.Points, true)}))
 	}

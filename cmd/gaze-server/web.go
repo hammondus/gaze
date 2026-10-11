@@ -162,6 +162,7 @@ func (s *webServer) handler() http.Handler {
 	authed.HandleFunc("GET /{$}", s.handleFleet)
 	authed.HandleFunc("GET /hosts/{id}", s.handleHost)
 	authed.HandleFunc("POST /hosts/{id}/config", s.handleHostConfig)
+	authed.HandleFunc("POST /hosts/{id}/labels", s.handleHostLabels)
 	authed.HandleFunc("POST /hosts/{id}/update", s.handleHostUpdate)
 	authed.HandleFunc("POST /hosts/update-all", s.handleUpdateAll)
 	authed.HandleFunc("GET /hosts/enroll", s.handleEnrollForm)

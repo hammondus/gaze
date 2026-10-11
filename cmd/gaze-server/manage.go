@@ -1,11 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/hammondus/gaze/internal/store"
 )
 
 // Agent management handlers: the desired configuration and the update
@@ -160,6 +165,80 @@ func updateStanding(f updateFacts, latest, serverVersion string, sendable bool) 
 				"This agent does not report why; journalctl -u gaze-agent on the host does.",
 				f.AgentVersion, f.Sent.Format("15:04:05"))}
 	}
+}
+
+// labelMax bounds a label in runes. A label is a short name for a column
+// or a graph caption, and a long one would push the host list back into
+// the wrapping the labels exist to avoid.
+const labelMax = 32
+
+// parseLabel trims and checks one submitted label. Empty is valid and
+// means remove.
+func parseLabel(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if !utf8.ValidString(v) {
+		return "", errors.New("label is not valid UTF-8")
+	}
+	if utf8.RuneCountInString(v) > labelMax {
+		return "", fmt.Errorf("label is longer than %d characters", labelMax)
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) {
+			return "", errors.New("label contains a control character")
+		}
+	}
+	return v, nil
+}
+
+// handleHostLabels stores the labels form: one field per mount, interface,
+// and block device, named label.<kind>.<reported name>. Every field on the
+// form is written, blank ones as a removal, so clearing a box clears the
+// label. Names not on the form are left alone.
+func (s *webServer) handleHostLabels(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Check the whole form before writing any of it, so one bad box does
+	// not leave the others half saved.
+	type entry struct{ kind, name, label string }
+	var entries []entry
+	for field, values := range r.PostForm {
+		rest, ok := strings.CutPrefix(field, "label.")
+		if !ok {
+			continue
+		}
+		// The kind never contains a dot; the name, a mount path, may.
+		kind, name, ok := strings.Cut(rest, ".")
+		if !ok || name == "" {
+			http.Error(w, "malformed label field "+field, http.StatusBadRequest)
+			return
+		}
+		switch kind {
+		case store.LabelMount, store.LabelNet, store.LabelDisk:
+		default:
+			http.Error(w, "unknown label kind "+kind, http.StatusBadRequest)
+			return
+		}
+		label, err := parseLabel(values[0])
+		if err != nil {
+			http.Error(w, name+": "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		entries = append(entries, entry{kind, name, label})
+	}
+	for _, e := range entries {
+		if err := s.store.SetLabel(r.Context(), id, e.kind, e.name, e.label); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	http.Redirect(w, r, fmt.Sprintf("/hosts/%d", id), http.StatusSeeOther)
 }
 
 // configStatus is the one line that answers "did it take?": applied,

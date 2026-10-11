@@ -328,4 +328,16 @@ ALTER TABLE reports ADD COLUMN updates_counted INTEGER;
 -- text for why its last attempt failed, from its latest report.
 ALTER TABLE hosts ADD COLUMN update_sent_at INTEGER;
 ALTER TABLE hosts ADD COLUMN update_error TEXT NOT NULL DEFAULT '';
+`, `
+-- Labels: the operator's name for a mount, interface, or block device,
+-- keyed by the name the host reports. Presentation only. Alert state,
+-- roll-ups, and every series key on the reported name, so a label can be
+-- set or changed without touching history or resetting an alert.
+CREATE TABLE labels (
+	host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+	kind    TEXT NOT NULL,   -- LabelMount, LabelNet, or LabelDisk
+	name    TEXT NOT NULL,   -- as reported: a mount path or a device name
+	label   TEXT NOT NULL,
+	PRIMARY KEY (host_id, kind, name)
+) WITHOUT ROWID;
 `}

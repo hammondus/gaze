@@ -1713,6 +1713,51 @@ distroless carries the zone database. Unset is UTC, and the zone name on
 the line makes that visible rather than leaving a UTC clock to pass for
 local time.
 
+## Labels are the server's, and alerts keep the reported name
+
+An operator can give a mount, an interface, or a block device a name of
+their own: "Backups" for `/opt/FileMaker/Backups`. The label is a row in
+the server's database, set from the host page, and looked up by the
+presentation code at the last step. It never reaches the agent and it is
+never a key.
+
+The agent side lost on four counts. The agent has no runtime configuration
+by design, so a label there means a file or a flag on every host, an SSH
+session, and a restart. It would need a new wire field, or the agent
+rewriting the path before sending it; the second changes the identity that
+alert state and roll-ups key on, so changing a label would reset an alert
+and split a series. Applied at collection, a label covers data from the
+restart onward; applied at render, it covers two years of history. And the
+host's display name already works this way: "Oracle Server" is not a
+hostname, it is what the operator typed at enrolment.
+
+Every key stays the reported name: `alert_state.instance`, the series
+tables, the sort order, the devices rule that decides what is virtual. The
+label is `query.Labels.Of(kind, name)` at the point of display and nowhere
+earlier, so a page shows "Backups" while the row underneath it is still
+`/opt/FileMaker/Backups`. The reported name is never more than a hover
+away: the host list keeps every path in the disk cell's title, the
+filesystems table prints it dimmed after the label, and a graph caption
+carries it in brackets, because the graph is where someone goes to work
+out which device is busy.
+
+Alert mail keeps the reported name on purpose. The person reading it is
+about to open a shell on that host, and `df /opt/FileMaker/Backups` is the
+command they need; "Backups" is the word they would have to translate.
+
+The TUI, local and over SSH, shows the kernel's names. The SSH view renders
+the same `ui.Model` the local binary does, from a `metrics.Snapshot`, and
+the model filters virtual devices by name inside its panels. Substituting
+labels into the snapshot would break that filter, and threading a lookup
+through `ui` buys little: in a terminal on or beside the box, the kernel's
+name is the useful one.
+
+Labels are operator input rendered into signed-in pages, so they go through
+`html/template` like every host-reported string, and the handler bounds
+them: trimmed, valid UTF-8, no control characters, at most 32 characters.
+The bound is there for the layout, not for safety: a long label would put
+the host list back into the wrapping the labels exist to avoid.
+
 ## The server image is distroless/static, and the Debian release is in the tag
 
 `gaze-server` was first packaged on `alpine:3.20`, which had reached end of

@@ -88,6 +88,11 @@ type Overview struct {
 	// the list can show the one closest to full.
 	Mounts []report.Mount
 
+	// Labels is what the operator calls this host's mounts, interfaces,
+	// and block devices. Presentation looks names up through it; nothing
+	// else does.
+	Labels Labels
+
 	// Remote-management standing: the desired configuration generation
 	// beside the echoed one in Host.Generation, the agent's refusal text,
 	// and the self-update request's progress — when it was asked for, when
@@ -163,7 +168,10 @@ func (q *Q) Fleet(ctx context.Context) ([]Overview, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return out, q.fleetMounts(ctx, out)
+	if err := q.fleetMounts(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, q.fleetLabels(ctx, out)
 }
 
 // fleetMounts fills each host's Mounts from its newest raw report. One

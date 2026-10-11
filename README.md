@@ -475,6 +475,20 @@ When the update takes, the label goes and only the new version shows.
 **Update all agents** skips hosts already on the latest release and hosts
 that have never reported, and says how many it asked.
 
+### Labelling filesystems and devices
+
+A mount path such as `/opt/FileMaker/Backups` says more than the host list
+needs. Each host's page has a **Labels** form listing its mounts,
+interfaces, and block devices. A label stands in for the reported name on
+the host list, in the filesystems table, and in graph captions, where the
+reported name follows it in brackets. The host list keeps every path in
+the disk figure's hover text. Blank removes a label.
+
+Labels live on the server and apply at render time, so they cover stored
+history and need nothing from the agent. Alert mail keeps the reported
+name, because the person reading it is about to work on the host. The
+TUI, local or over SSH, shows the kernel's names.
+
 ### Alerting
 
 The server mails on state transitions, never on conditions: CPU, memory,

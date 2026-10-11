@@ -198,6 +198,10 @@ pre {
 }
 .qr { background: #fff; padding: 8px; border-radius: 4px; }
 
+/* The labels form: a table of inputs, one per reported name. */
+.labels table { max-width: 40rem; }
+.labels input[type="text"] { width: 14rem; }
+
 /* Agent management */
 .agent-form {
   display: flex;

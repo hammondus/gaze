@@ -858,3 +858,100 @@ func TestUpdateProgressOnHostList(t *testing.T) {
 		t.Errorf("row not held:\n%s", chip(body))
 	}
 }
+
+// TestLabels covers the operator's names for mounts, interfaces, and block
+// devices: set from the host page, shown on the host list, the host page,
+// and the graph captions, and removed by a blank.
+func TestLabels(t *testing.T) {
+	w := newTestWeb(t)
+	ctx := t.Context()
+	token, err := w.store.Enroll(ctx, "fm-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := w.store.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := report.Report{
+		Schema: report.Schema, Version: "v1.0.0",
+		Host:  report.Host{Hostname: "fm-01"},
+		Start: time.Now().Add(-time.Minute), End: time.Now(), Samples: 6,
+		Networks: []report.Network{{Name: "eth0", Up: true}, {Name: "veth1a2b", Up: true}},
+		Disks:    []report.Disk{{Name: "sda"}},
+		Mounts: []report.Mount{
+			{Path: "/opt/FileMaker/Backups", Device: "/dev/sdb1", FSType: "ext4", Total: 100 << 30, Used: 69 << 30, Percent: 69},
+			{Path: "/", Device: "/dev/sda1", FSType: "ext4", Total: 50 << 30, Used: 10 << 30, Percent: 20},
+		},
+	}
+	if _, err := w.store.InsertReports(ctx, id, []report.Report{r}); err != nil {
+		t.Fatal(err)
+	}
+	w.setupAndSignIn()
+
+	// The form lists what the page shows, and not the hidden veth.
+	_, body := w.get("/hosts/1")
+	for _, field := range []string{`name="label.mount./opt/FileMaker/Backups"`, `name="label.mount./"`, `name="label.net.eth0"`, `name="label.disk.sda"`} {
+		if !strings.Contains(body, field) {
+			t.Errorf("labels form lacks %s", field)
+		}
+	}
+	if strings.Contains(body, "label.net.veth1a2b") {
+		t.Error("labels form offers a hidden virtual device")
+	}
+
+	resp, _ := w.post("/hosts/1/labels", url.Values{
+		"label.mount./opt/FileMaker/Backups": {"  Backups "},
+		"label.mount./":                      {""},
+		"label.net.eth0":                     {"LAN"},
+		"label.disk.sda":                     {"System SSD"},
+	})
+	wantRedirect(t, resp, "/hosts/1")
+
+	// The host list shows the label and keeps the path a hover away.
+	_, body = w.get("/")
+	if !strings.Contains(body, `<span class="dim mount">Backups</span>`) {
+		t.Errorf("host list does not show the mount label:\n%s", body)
+	}
+	if !strings.Contains(body, `title="69% /opt/FileMaker/Backups of 100.0 GiB`) {
+		t.Error("host list tooltip lost the reported path")
+	}
+
+	// The host page: table, captions, and the form prefilled.
+	_, body = w.get("/hosts/1")
+	for _, want := range []string{
+		`Backups <span class="dim">/opt/FileMaker/Backups</span>`,
+		`net LAN (eth0) — rx / tx`,
+		`disk System SSD (sda) — read / write`,
+		`value="Backups"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("host page lacks %q", want)
+		}
+	}
+
+	// A blank removes the label; the reported name comes back alone.
+	resp, _ = w.post("/hosts/1/labels", url.Values{"label.net.eth0": {""}})
+	wantRedirect(t, resp, "/hosts/1")
+	if _, body = w.get("/hosts/1"); !strings.Contains(body, `net eth0 — rx / tx`) {
+		t.Error("blank label did not restore the reported name")
+	}
+
+	// Refused at the door: a control character, an over-long label, an
+	// unknown kind, a field with no name.
+	for _, bad := range []url.Values{
+		{"label.net.eth0": {"LA\x00N"}},
+		{"label.net.eth0": {strings.Repeat("x", labelMax+1)}},
+		{"label.container.web": {"x"}},
+		{"label.net": {"x"}},
+	} {
+		if resp, _ = w.post("/hosts/1/labels", bad); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%v accepted: %d", bad, resp.StatusCode)
+		}
+	}
+	// A label on a name the host never reported is stored but harmless;
+	// a label on a host that does not exist is not.
+	if resp, _ = w.post("/hosts/99/labels", url.Values{"label.net.eth0": {"x"}}); resp.StatusCode == http.StatusSeeOther {
+		t.Error("label for a missing host accepted")
+	}
+}

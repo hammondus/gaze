@@ -98,7 +98,7 @@ release, staggered across the fleet.</p>
   <tbody>
   {{range .Mounts}}
   <tr>
-    <td>{{.Path}}</td>
+    <td>{{if $.Data.Labels.Has "mount" .Path}}{{$.Data.Labels.Of "mount" .Path}} <span class="dim">{{.Path}}</span>{{else}}{{.Path}}{{end}}</td>
     <td class="dim">{{.Device}}</td>
     <td class="dim">{{.FSType}}</td>
     <td class="num">{{bytes .Used}}</td>
@@ -109,6 +109,29 @@ release, staggered across the fleet.</p>
   {{end}}
   </tbody>
 </table>
+{{end}}
+
+{{if $.Data.Labelled}}
+<h2>Labels</h2>
+<form method="post" action="/hosts/{{$.Data.ID}}/labels" class="labels">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <table>
+    <thead><tr><th></th><th>reported name</th><th>label</th></tr></thead>
+    <tbody>
+    {{range $.Data.Labelled}}
+    <tr>
+      <td class="dim">{{.What}}</td>
+      <td>{{.Name}}</td>
+      <td><input type="text" name="label.{{.Kind}}.{{.Name}}" value="{{.Label}}" maxlength="32" placeholder="as reported"></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <button>Save labels</button>
+</form>
+<p class="dim">A label stands in for the reported name on the host list,
+on this page, and in graph captions. Alert mail keeps the reported name.
+Blank removes a label.</p>
 {{end}}
 
 <h2>Containers</h2>
